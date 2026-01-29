@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Price {
+  id           Int      @id @default(autoincrement())
+  store        String
+  product_query String
+  product_name  String
+  brand         String
+  price        Int
+  url          String?
+  scrapedAt    DateTime @default(now())
+
+  @@index([store])
+  @@index([product_query])
+  @@index([brand])
+}
+
+model ScrapeLock {
+  id           Int      @id @default(autoincrement())
+  store        String
+  product_query String
+  locked_at     DateTime @default(now())
+
+  @@unique([store, product_query])
+}
