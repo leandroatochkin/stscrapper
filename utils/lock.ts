@@ -1,14 +1,14 @@
 import { prisma } from '../prisma'
 
 export async function cleanupStaleLocks(store: string, query: string) {
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  
   await prisma.scrapeLock.deleteMany({
     where: {
       store,
       product_query: query,
-      locked_at: {
-        lt: new Date(Date.now() - 5 * 60 * 1000),
-      },
-    },
+      locked_at: { lt: fiveMinutesAgo } // ONLY delete if older than 5 mins
+    }
   });
 }
 
@@ -45,13 +45,16 @@ export async function acquireLock(
 
 
 export async function releaseLock(store: string, query: string) {
-  await prisma.scrapeLock.delete({
-    where: {
-      store_product_query: {
-        store,
+  try {
+    // deleteMany doesn't throw if the record is missing
+    await prisma.scrapeLock.deleteMany({
+      where: {
+        store: store,
         product_query: query,
       },
-    },
-  });
+    });
+  } catch (error) {
+    console.error("Error releasing lock:", error);
+  }
 }
 

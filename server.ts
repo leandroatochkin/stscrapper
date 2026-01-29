@@ -5,8 +5,9 @@ import { scrapeDia } from "./scrapper/dia.scrapper";
 import { prisma } from "./prisma";
 import { searchRoutes } from "./routes/search.routes";
 import { pricesRoutes } from "./routes/prices.routes";
+import { adminRoutes } from "./routes/admin.routes";
 import rateLimit from "@fastify/rate-limit";
-import { cleanupStaleLocks } from "./utils/lock";
+import './cron/priceCleanup'
 
 
 export const app = Fastify({
@@ -20,27 +21,27 @@ app.register(cors, {
 
 
 
-const PRODUCTS = ["leche", "arroz", "fideos", "coca cola", "cerveza"];
+// const PRODUCTS = ["leche", "arroz", "fideos", "coca cola", "cerveza"];
 
-app.get("/scrape", async () => {
-  for (const query of PRODUCTS) {
-    const results = await scrapeDia(query);
-    console.log(results)
-    for (const product of results) {
-      await prisma.price.create({
-        data: {
-          store: "DIA",
-          product_query: query,
-          product_name: product.name,
-          price: product.price,
-          url: product.link,
-        },
-      });
-    }
-  }
+// app.get("/scrape", async () => {
+//   for (const query of PRODUCTS) {
+//     const results = await scrapeDia(query);
+//     console.log(results)
+//     for (const product of results) {
+//       await prisma.price.create({
+//         data: {
+//           store: "DIA",
+//           product_query: query,
+//           product_name: product.name,
+//           price: product.price,
+//           url: product.link,
+//         },
+//       });
+//     }
+//   }
 
-  return { status: "done" };
-});
+//   return { status: "done" };
+// });
 
 // app.get("/prices", async () => {
 //   return prisma.price.findMany({
@@ -80,6 +81,7 @@ const start = async () => {
   // 1. Register Plugins/Routes
   await app.register(searchRoutes, { prefix: "/api" });
   await app.register(pricesRoutes, { prefix: "/api" });
+  await app.register(adminRoutes)
 
   // 2. Register Error Handler (MUST BE BEFORE LISTEN)
   app.setErrorHandler((error: any, request, reply) => {
