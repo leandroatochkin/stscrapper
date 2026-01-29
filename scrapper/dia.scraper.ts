@@ -41,6 +41,12 @@ export async function scrapeDia(query: string) {
     cards =>
       cards.slice(0, 5).map(card => {
 
+        const promoText = 
+          card.querySelector('.vtex-product-highlights-2-x-productHighlightText')?.textContent?.trim() ||
+          card.querySelector('.vtex-product-price-1-x-savingsPercentage')?.textContent?.trim() ||
+          card.querySelector('.vtex-product-highlights-2-x-productHighlightText--promotions')?.textContent?.trim() ||
+          null;
+
         const name =
           card.querySelector(
             ".vtex-product-summary-2-x-productNameContainer"
@@ -65,7 +71,7 @@ export async function scrapeDia(query: string) {
           ? relativeLink
           : `https://diaonline.supermercadosdia.com.ar${relativeLink}`;
 
-        return { name, price, link };
+        return { name, price, link, promoText };
       })
   );
 

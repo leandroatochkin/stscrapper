@@ -13,6 +13,7 @@ model Price {
   product_name  String
   brand         String
   price        Int
+  promo_text    String?
   url          String?
   scrapedAt    DateTime @default(now())
 

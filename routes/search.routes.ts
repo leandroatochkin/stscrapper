@@ -151,6 +151,7 @@ export async function searchRoutes(app: FastifyInstance) {
 
       // 2. Cache Check (30 min threshold)
       const cacheThreshold = new Date(Date.now() - 30 * 60 * 1000);
+
       const cached = await prisma.price.findMany({
         where: {
           store: store.toUpperCase(),
@@ -162,10 +163,13 @@ export async function searchRoutes(app: FastifyInstance) {
 
       // 3. If cache hit, return results immediately
       if (cached.length > 0) {
+        
+        const filteredResults = cached.filter(p => p.product_name !== "NO_RESULTS_FOUND");
+
         return {
           status: "COMPLETED",
           source: "cache",
-          results: cached,
+          results: filteredResults,
         };
       }
 
@@ -184,6 +188,7 @@ export async function searchRoutes(app: FastifyInstance) {
       const lockAcquired = await acquireLock(store, normalizedQ);
 
       if (lockAcquired) {
+          addScrapeJob("COTO", normalizedQ);
           addScrapeJob("DIA", normalizedQ);
           return { status: "STARTED" };
         }
@@ -193,7 +198,8 @@ export async function searchRoutes(app: FastifyInstance) {
       // IMPORTANT: We do NOT 'await' this. It runs in the background.
       req.log.warn({ q: normalizedQ }, "Adding job to simple queue");
       
-      addScrapeJob(store, normalizedQ);
+      addScrapeJob("COTO", normalizedQ);
+      addScrapeJob("DIA", normalizedQ);
 
       // 6. Respond immediately so the frontend can show a loader
       return {

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { scrapeDia } from "./scrapper/dia.scrapper";
+import { scrapeDia } from "./scrapper/dia.scraper";
 import { prisma } from "./prisma";
 import { searchRoutes } from "./routes/search.routes";
 import { pricesRoutes } from "./routes/prices.routes";

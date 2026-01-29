@@ -14,13 +14,14 @@ export const addScrapeJob = (store: string, query: string) => {
     try {
       const results = await ScraperFactory.run(store, query);
 
-      if (results.length > 0) {
+      if (results && results.length > 0) {
         const dataToSave = results.map(product => ({
           store: store.toUpperCase(),
           product_query: query,
           product_name: product.name,
           brand: extractBrand(product.name),
           price: product.price,
+          promo_text: product.promoText,
           url: product.link,
         }));
 
@@ -29,6 +30,17 @@ export const addScrapeJob = (store: string, query: string) => {
           skipDuplicates: true 
         });
         console.log(`[Queue] Saved ${results.length} items for ${query}`);
+      } else {
+        await prisma.price.create({
+            data: {
+                store: store.toUpperCase(),
+                product_query: query,
+                product_name: "NO_RESULTS_FOUND", // This is our marker
+                brand: "NONE",
+                price: 0,
+                url: `empty:${store}:${query}:${Date.now()}`
+            }
+            });
       }
     } catch (err) {
       console.error(`[Queue] Failed ${store} for ${query}:`, err);
