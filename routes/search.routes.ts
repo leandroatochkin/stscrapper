@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { scrapeDia } from "../scrapper/dia.scrapper";
 import { prisma } from "../prisma";
 import { acquireLock, releaseLock, cleanupStaleLocks } from "../utils/lock";
+import { extractBrand } from "../utils/brandMapper";
 
 export async function searchRoutes(app: FastifyInstance) {
   app.get(
@@ -74,24 +75,46 @@ export async function searchRoutes(app: FastifyInstance) {
         req.log.warn({ q: normalizedQ }, "Lock acquired — scraping DIA");
 
         const results = await scrapeDia(normalizedQ);
+        console.log(results)
 
-        const saved = [];
+        // for (const product of results) {
+        //   if (!product.price || product.price <= 0) continue;
 
-        for (const product of results) {
-          if (!product.price || product.price <= 0) continue;
+        //   const brand = extractBrand(product.name)
 
-          await prisma.price.create({
-            data: {
+        //   await prisma.price.create({
+        //     data: {
+        //       store: "DIA",
+        //       product_query: normalizedQ,
+        //       product_name: product.name,
+        //       brand: brand,
+        //       price: product.price,
+        //       url: product.link,
+        //     },
+        //   });
+          
+        // }
+
+        const dataToSave = results
+            .filter(product => product.price > 0)
+            .map(product => ({
               store: "DIA",
               product_query: normalizedQ,
               product_name: product.name,
-              brand: product.brand,
+              brand: extractBrand(product.name), // Mapping happens here
               price: product.price,
               url: product.link,
-            },
+              // scrapedAt: new Date() // Prisma usually handles this via default(now())
+            }));
+
+        if (dataToSave.length > 0) {
+          // Bulk insert is much faster than multiple awaits in a loop
+          await prisma.price.createMany({
+            data: dataToSave,
+            skipDuplicates: true, // Useful if your DB has unique constraints
           });
-          
         }
+
       } finally {
         if (lockAcquired) {
           await releaseLock("DIA", normalizedQ);

@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { extractBrand } from "../utils/brandMapper";
 
 const BASE_URL = "https://diaonline.supermercadosdia.com.ar";
 
@@ -39,10 +40,6 @@ export async function scrapeDia(query: string) {
     ".vtex-product-summary-2-x-container",
     cards =>
       cards.slice(0, 5).map(card => {
-        const brand =
-          card.querySelector(
-            ".vtex-store-components-3-x-productBrandName"
-          )?.textContent?.trim() ?? "GENERIC";
 
         const name =
           card.querySelector(
@@ -68,7 +65,7 @@ export async function scrapeDia(query: string) {
           ? relativeLink
           : `https://diaonline.supermercadosdia.com.ar${relativeLink}`;
 
-        return { brand, name, price, link };
+        return { name, price, link };
       })
   );
 
