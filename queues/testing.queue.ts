@@ -5,49 +5,42 @@ import { extractBrand } from '../utils/brandMapper';
 import { releaseLock } from '../utils/lock';
 
 // Concurrency: 1 means it will process one store at a time (saves RAM)
-export const scrapeQueue = new PQueue({ concurrency: 1 });
+export const scrapeQueue = new PQueue({ concurrency: 2 });
 
-export const addScrapeJob = (store: string, query: string) => {
-  // We don't await this; it returns immediately and runs in background
+export const addScrapeJob = (query: string) => {
   scrapeQueue.add(async () => {
-    console.log(`[Queue] Starting: ${store} for ${query}`);
+    const stores = ['DIA', 'COTO'];
+    console.log(`[Queue] Starting Full Search for: ${query}`);
+
     try {
-      const results = await ScraperFactory.run(store, query);
+      // Run both in parallel within the SAME job
+      await Promise.all(stores.map(async (store) => {
+        try {
+          const results = await ScraperFactory.run(store, query);
+          if (results && results.length > 0) {
+            const dataToSave = results.map(product => ({
+              store: store.toUpperCase(),
+              product_query: query,
+              product_name: product.name,
+              brand: extractBrand(product.name),
+              price: product.price,
+              promo_text: product.promoText,
+              url: product.link,
+            }));
 
-      if (results && results.length > 0) {
-        const dataToSave = results.map(product => ({
-          store: store.toUpperCase(),
-          product_query: query,
-          product_name: product.name,
-          brand: extractBrand(product.name),
-          price: product.price,
-          promo_text: product.promoText,
-          url: product.link,
-        }));
-
-        await prisma.price.createMany({ 
-          data: dataToSave, 
-          skipDuplicates: true 
-        });
-        console.log(`[Queue] Saved ${results.length} items for ${query}`);
-      } else {
-        await prisma.price.create({
-            data: {
-                store: store.toUpperCase(),
-                product_query: query,
-                product_name: "NO_RESULTS_FOUND", // This is our marker
-                brand: "NONE",
-                price: 0,
-                url: `empty:${store}:${query}:${Date.now()}`
-            }
+            await prisma.price.createMany({ 
+              data: dataToSave, 
+              skipDuplicates: true 
             });
-      }
-    } catch (err) {
-      console.error(`[Queue] Failed ${store} for ${query}:`, err);
+          }
+        } catch (err) {
+          console.error(`[Queue] Failed ${store}:`, err);
+        }
+      }));
     } finally {
-      // 3. ALWAYS release the lock so the next poll/search can proceed
-      await releaseLock(store, query);
-      console.log(`[Worker] Lock released for ${store}:${query}`);
+      // ONLY release the lock after BOTH stores are finished
+      await releaseLock('GLOBAL', query); 
+      console.log(`[Worker] All stores finished for ${query}`);
     }
   });
 };
