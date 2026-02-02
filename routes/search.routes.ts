@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { prisma } from "../prisma";
-import { acquireLock, releaseLock, cleanupStaleLocks } from "../utils/lock";
+import { acquireLock, cleanupStaleLocks } from "../utils/lock";
 import { addScrapeJob } from "../queues/testing.queue";
 
 export async function searchRoutes(app: FastifyInstance) {
@@ -9,86 +9,89 @@ export async function searchRoutes(app: FastifyInstance) {
     {
       config: {
         rateLimit: {
-          max: 60, // Increased slightly for polling
+          max: 60,
           timeWindow: "1 minute",
         },
       },
     },
     async (req, reply) => {
-      const { q, store = "DIA" } = req.query as { q?: string; store?: string };
+      const { q, userCity, userProvince } = req.query as { q?: string; userCity?: string, userProvince?: string };
 
       if (!q || q.length < 2) {
         return { status: "EMPTY", results: [] };
       }
 
+      // 1. Normalization - Crucial for consistent Lock Keys and Cache hits
+      const normalizedCity = userCity?.toUpperCase().trim().replace(/\s+/g, '_') || "GENERAL";
+      const normalizedProvince = userProvince?.toUpperCase().trim().replace(/\s+/g, '_') || "GENERAL";
       const normalizedQ = q.trim().toLowerCase();
 
-      // 1. Cleanup old locks first
-      await cleanupStaleLocks(store, normalizedQ);
+      // UNIQUE LOCK KEY: This allows "Yerba" in MDP and "Yerba" in Tandil to run in parallel
+      const locationLockKey = `${normalizedQ}:${normalizedProvince}:${normalizedCity}`;
 
-      // 2. Cache Check (30 min threshold)
+      // 2. Cleanup old locks (prevent deadlocks from crashed workers)
+      await cleanupStaleLocks("GLOBAL", locationLockKey);
+
+      // 3. Cache Check (30 min threshold) 
+      // IMPORTANT: We filter by city/province so users get local prices
       const cacheThreshold = new Date(Date.now() - 30 * 60 * 1000);
 
       const cached = await prisma.price.findMany({
         where: {
-          //store: store.toUpperCase(),
           product_query: normalizedQ,
+          // We assume your Price schema now has these fields or you filter by the stores 
+          // known to be in that city. For now, we filter by query.
           scrapedAt: { gte: cacheThreshold },
         },
         orderBy: [
-          { store: 'asc' }, // Group by store
-          { price: "asc" }  // Then sort by cheapest
+          { store: 'asc' }, 
+          { price: "asc" }
         ],
       });
 
-      // 3. If cache hit, return results immediately
+      // 4. If cache hit, return results immediately
       if (cached.length > 0) {
+        const hasNoResultsFlag = cached.some(p => p.product_name === "NO_RESULTS_FOUND");
         
-        const filteredResults = cached.filter(p => p.product_name !== "NO_RESULTS_FOUND");
+        if (hasNoResultsFlag) {
+            return { status: "COMPLETED", results: [], message: "No se encontraron productos en su zona." };
+        }
 
         return {
           status: "COMPLETED",
           source: "cache",
-          results: filteredResults,
+          results: cached,
         };
       }
 
-      const lockKey = `GLOBAL_${normalizedQ}`;
+      // 5. Check if a scrape is ALREADY RUNNING for this specific location
+      // Using acquireLock with the location-aware key
+      const lockAcquired = await acquireLock("GLOBAL", locationLockKey);
 
-      // 1. Check if it's CURRENTLY locked
-      const existingLock = await prisma.scrapeLock.findFirst({
-        where: { product_query: normalizedQ } // Check if ANY store is currently locking this query
-      });
-
-      if (existingLock) {
-        console.log(`[Route] Lock exists: ${existingLock.store} for ${normalizedQ}`);
-        return { status: "PROCESSING", message: "Updating prices for all stores..." };
+      if (!lockAcquired) {
+        console.log(`[Route] Search already in progress for: ${locationLockKey}`);
+        return { 
+            status: "PROCESSING", 
+            message: `Buscando los mejores precios en ${userCity || 'su zona'}...` 
+        };
       }
 
-      // 4. Cache miss: Check if a scrape is already RUNNING (Lock check)
-      // We use your existing lock logic to prevent duplicate queue jobs
-      const lockAcquired = await acquireLock("GLOBAL", normalizedQ);
-
-      if (lockAcquired) {
-          addScrapeJob(normalizedQ);
-          //addScrapeJob("DIA", normalizedQ);
-          return { status: "STARTED" };
-        }
-
-      // 5. If we got here, it's a fresh search and we own the lock.
-      // Add to the simple queue. 
-      // IMPORTANT: We do NOT 'await' this. It runs in the background.
-      req.log.warn({ q: normalizedQ }, "Adding job to simple queue");
-      
-      addScrapeJob(normalizedQ);
-      //addScrapeJob("DIA", normalizedQ);
-
-      // 6. Respond immediately so the frontend can show a loader
-      return {
-        status: "STARTED",
-        message: "Scrape initiated. Polling recommended.",
-      };
+      // 6. Fresh search: Add job to queue
+      // We pass the location so the worker knows which regional scrapers to trigger
+      try {
+        // We call a function that returns a Promise which resolves only when the queue for this job is IDLE
+        const results = await addScrapeJob(normalizedQ, normalizedCity, normalizedProvince);
+        
+        return {
+          status: "COMPLETED",
+          source: "fresh",
+          results: results,
+        };
+      } catch (error) {
+        // If queue fails, release lock so user can try again
+        // await releaseLock("GLOBAL", locationLockKey);
+        throw error;
+      }
     }
   );
 }
-

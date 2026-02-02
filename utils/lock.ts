@@ -7,7 +7,7 @@ export async function cleanupStaleLocks(store: string, query: string) {
     where: {
       store,
       product_query: query,
-      locked_at: { lt: fiveMinutesAgo } // ONLY delete if older than 5 mins
+      locked_at: { lt: fiveMinutesAgo }
     }
   });
 }
@@ -17,36 +17,51 @@ export async function acquireLock(
   query: string
 ): Promise<boolean> {
   try {
-    await prisma.$transaction(async (tx) => {
+    // We use a transaction to ensure atomicity
+    return await prisma.$transaction(async (tx) => {
+      // 1. Try to insert the lock record. If it exists, 'DO NOTHING'
       await tx.$executeRaw`
-        INSERT INTO "ScrapeLock" (store, "product_query")
-        VALUES (${store}, ${query})
+        INSERT INTO "ScrapeLock" (store, "product_query", "locked_at")
+        VALUES (${store}, ${query}, NOW())
         ON CONFLICT (store, "product_query") DO NOTHING
       `;
 
+      // 2. Try to lock the row. 
+      // NOWAIT will throw error 55P03 if another transaction holds the lock.
       await tx.$executeRaw`
-        SELECT 1
-        FROM "ScrapeLock"
-        WHERE store = ${store}
-          AND "product_query" = ${query}
+        SELECT 1 FROM "ScrapeLock"
+        WHERE store = ${store} AND "product_query" = ${query}
         FOR UPDATE NOWAIT
       `;
-    });
 
-    return true; // lock acquired
+      return true; 
+    }, {
+      maxWait: 5000, 
+      timeout: 10000 
+    });
   } catch (err: any) {
-    // Postgres: could not obtain lock
-    if (err.code === "55P03") {
-      return false;
+    // 55P03: Postgres lock error
+    // P2028: Prisma transaction timeout
+    // P2010: Raw query failed (the one you saw in your logs)
+    const isLockError = 
+      err.code === "P2010" || 
+      err.code === "P2028" || 
+      err.message?.includes("55P03") || 
+      err.message?.includes("could not obtain lock");
+
+    if (isLockError) {
+      console.log(`[Lock] Lock already held for ${store}:${query}. Skipping.`);
+      return false; 
     }
-    throw err;
+    
+    // If it's a different error, we still want to know about it
+    console.error("[Lock Error]:", err);
+    return false;
   }
 }
 
-
 export async function releaseLock(store: string, query: string) {
   try {
-    // deleteMany doesn't throw if the record is missing
     await prisma.scrapeLock.deleteMany({
       where: {
         store: store,
@@ -57,4 +72,3 @@ export async function releaseLock(store: string, query: string) {
     console.error("Error releasing lock:", error);
   }
 }
-
