@@ -59,7 +59,9 @@ export const addScrapeJob = async (query: string, city: string, province: string
             product_name: "NO_RESULTS_FOUND",
             brand: "NONE",
             price: 0,
-            url: `empty:${lockKey}:${Date.now()}`
+            url: `empty:${lockKey}`,
+            // NEW: Add a diagnostic note
+            promo_text: "CHECK_REQUIRED: No elements found for selectors" 
           }
         });
       }

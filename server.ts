@@ -7,6 +7,7 @@ import { searchRoutes } from "./routes/search.routes";
 import { pricesRoutes } from "./routes/prices.routes";
 import { adminRoutes } from "./routes/admin.routes";
 import rateLimit from "@fastify/rate-limit";
+import { cleanOldFiles } from "./utils/screenshotCleanup";
 import './cron/priceCleanup'
 
 
@@ -19,35 +20,12 @@ app.register(cors, {
   origin: true,
 });
 
+cleanOldFiles('screenshots', 3);
 
-
-// const PRODUCTS = ["leche", "arroz", "fideos", "coca cola", "cerveza"];
-
-// app.get("/scrape", async () => {
-//   for (const query of PRODUCTS) {
-//     const results = await scrapeDia(query);
-//     console.log(results)
-//     for (const product of results) {
-//       await prisma.price.create({
-//         data: {
-//           store: "DIA",
-//           product_query: query,
-//           product_name: product.name,
-//           price: product.price,
-//           url: product.link,
-//         },
-//       });
-//     }
-//   }
-
-//   return { status: "done" };
-// });
-
-// app.get("/prices", async () => {
-//   return prisma.price.findMany({
-//     orderBy: { scrapedAt: "desc" },
-//   });
-// });
+setInterval(() => {
+  console.log('[System] Running daily maintenance...');
+  cleanOldFiles('screenshots', 3);
+}, 24 * 60 * 60 * 1000);
 
 app.get("/cheapest", async () => {
   return prisma.$queryRaw`
