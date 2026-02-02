@@ -8,7 +8,7 @@ export async function scrapeDia(page: Page, query: string) {
     const searchUrl = `${BASE_URL}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
     
     await page.goto(searchUrl, {
-      waitUntil: "networkidle", // Wait for the page to be quiet
+      waitUntil: "domcontentloaded", // Wait for the page to be quiet
       timeout: 45000,
     });
 

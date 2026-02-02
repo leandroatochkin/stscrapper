@@ -3,6 +3,7 @@ import { scrapeCoto } from './coto.scraper';
 import { scrapeToledo } from './toledo.scraper';
 import { scrapeCencosud } from './cencosud.scraper';
 import { scrapeCarrefour } from './carrefour.scraper';
+import { scrapeLaCoope } from './coope.scraper';
 import { Browser } from 'playwright';
 import { USER_AGENTS } from '../utils/browserManager';
 import path from 'path';
@@ -44,10 +45,14 @@ export class ScraperFactory {
         case 'CARREFOUR':
           results = await scrapeCarrefour(page, query);
           break;
+        case 'COOPERATIVA_OBRERA':
+          results = await scrapeLaCoope(page, query);
+          break;
         default:
           console.warn(`[Factory] Scraper for ${store} not implemented.`);
           return [];
       }
+      
 
       // 2. DIAGNOSTIC CHECK: If results are empty, take a low-res screenshot
       if (!results || results.length === 0) {
