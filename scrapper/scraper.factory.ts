@@ -4,6 +4,7 @@ import { scrapeToledo } from './toledo.scraper';
 import { scrapeCencosud } from './cencosud.scraper';
 import { scrapeCarrefour } from './carrefour.scraper';
 import { scrapeLaCoope } from './coope.scraper';
+import { scrapeChangoMas } from './changomasScraper';
 import { Browser } from 'playwright';
 import { USER_AGENTS } from '../utils/browserManager';
 import path from 'path';
@@ -48,10 +49,14 @@ export class ScraperFactory {
         case 'COOPERATIVA_OBRERA':
           results = await scrapeLaCoope(page, query);
           break;
+        case 'CHANGOMAS':
+          results = await scrapeChangoMas(page, query);
+          break;
         default:
           console.warn(`[Factory] Scraper for ${store} not implemented.`);
           return [];
       }
+      
       
 
       // 2. DIAGNOSTIC CHECK: If results are empty, take a low-res screenshot
