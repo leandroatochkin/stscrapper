@@ -50,7 +50,8 @@ export class ScraperFactory {
           results = await scrapeLaCoope(page, query);
           break;
         case 'CHANGOMAS':
-          results = await scrapeChangoMas(page, query);
+          //results = await scrapeChangoMas(page, query);
+          results = await scrapeChangoMas(query);
           break;
         default:
           console.warn(`[Factory] Scraper for ${store} not implemented.`);

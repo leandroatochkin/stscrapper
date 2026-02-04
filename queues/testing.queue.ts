@@ -15,7 +15,9 @@ export const addScrapeJob = async (query: string, city: string, province: string
 
   // RETURN the result of scrapeQueue.add so the route can await it
   return await scrapeQueue.add(async () => {
-    const stores = getStoresForLocation(city, province);
+    //const stores = getStoresForLocation(city, province);
+
+    const stores = ["CHANGOMAS"];
     let totalItemsSaved = 0;
 
     console.log(`[Queue] Starting Full Search for: "${query}" in ${city}`);

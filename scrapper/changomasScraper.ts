@@ -1,61 +1,57 @@
-import { Page } from "playwright";
+import * as cheerio from 'cheerio';
+import { getPageHtml } from '../services/scraperEngine.service';
 
-const BASE_URL = "https://www.masonline.com.ar/";
-
-export async function scrapeChangoMas(page: Page, query: string) {
+export async function scrapeChangoMas(query: string) {
+  const url = `https://www.masonline.com.ar/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
+  
   try {
-    console.log(`[ChangoMas] Searching for: ${query}`);
+    const html = await getPageHtml(url);
+    if (!html) return [];
 
-    const searchUrl = `${BASE_URL}${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
-    
-    // 1. Increase the wait. "networkidle" is better for VTEX if the connection is stable.
-    await page.goto(searchUrl, { waitUntil: "networkidle", timeout: 60000 });
+    const $ = cheerio.load(html);
+    const products: any[] = [];
 
-    // 2. Force a scroll. This often triggers the lazy-loading of VTEX components.
-    //await page.evaluate(() => window.scrollBy(0, 400));
+    $('.vtex-product-summary-2-x-container').each((_, el) => {
+      const card = $(el);
 
-    // 3. WAIT for the actual name element to appear, not just the container.
-    // If the skeleton is there but not the name, this will wait.
-    await page.waitForSelector('.vtex-product-summary-2-x-brandName', { timeout: 30000 });
+      // 1. Selector from your commented code (reliable)
+      const name = card.find('.vtex-product-summary-2-x-brandName').first().text().trim();
+      
+      // 2. Link logic from your commented code
+      const href = card.find('a.vtex-product-summary-2-x-clearLink').attr('href') || "";
+      const fullLink = href.startsWith('http') ? href : `https://www.masonline.com.ar${href}`;
 
-    // 4. Extraction Logic (using your specific HTML structure)
-    const products = await page.$$eval('.vtex-product-summary-2-x-container', (cards) => {
-      return cards.slice(0, 12).map(card => {
-        const nameEl = card.querySelector('.vtex-product-summary-2-x-brandName');
-        const name = nameEl?.textContent?.trim() || "";
+      // 3. Price logic (Join fragmented spans)
+      const priceWrapper = card.find('.valtech-gdn-dynamic-product-1-x-dynamicProductPrice').first();
+      const integers = priceWrapper.find('.valtech-gdn-dynamic-product-1-x-currencyInteger')
+        .map((_, iEl) => $(iEl).text().trim())
+        .get()
+        .join('');
 
-        const linkEl = card.querySelector('a.vtex-product-summary-2-x-clearLink');
-        const href = linkEl?.getAttribute('href') || "";
+      const fraction = priceWrapper.find('.valtech-gdn-dynamic-product-1-x-currencyFraction').text().trim() || "00";
+
+      // 4. Promo Text
+      const promo = card.find('.valtech-gdn-dynamic-product-1-x-weighableSavingsPercentage').first().text().trim();
+
+      if (name && integers) {
+        // We calculate the float, then Math.round for your Prisma 'Int' field
+        const rawPrice = parseFloat(`${integers}.${fraction.replace(/[^0-9]/g, '')}`);
         
-        // Price Logic: Joining the split integers
-        const priceContainer = card.querySelector('.valtech-gdn-dynamic-product-1-x-dynamicProductPrice');
-        let price = 0;
-        
-        if (priceContainer) {
-          const integers = Array.from(priceContainer.querySelectorAll('.valtech-gdn-dynamic-product-1-x-currencyInteger'))
-            .map((el: any) => el.textContent?.trim())
-            .join("");
-            
-          const fraction = priceContainer.querySelector('.valtech-gdn-dynamic-product-1-x-currencyFraction')?.textContent?.trim() || "00";
-          price = Number(`${integers}.${fraction.replace(/[^0-9]/g, "")}`);
-        }
+        products.push({
+          name: name,             // Matches Queue: product.name
+          price: Math.round(rawPrice), // Matches Schema: Int
+          promoText: promo || "", // Matches Queue: product.promoText
+          link: fullLink,         // Matches Queue: product.link
+          store: "CHANGOMAS"
+        });
+      }
+    });
 
-        const isUnavailable = card.textContent?.includes("No Disponible") || false;
+    console.log(`[ChangoMas] Successfully parsed ${products.length} items.`);
+    return products;
 
-        return { 
-          name, 
-          price: isUnavailable ? 0 : price, 
-          link: href.startsWith('http') ? href : `https://www.masonline.com.ar${href}`
-        };
-      });
-    }); 
-
-    const final = products.filter(p => p.name.length > 0 && p.price > 0);
-    console.log(`[ChangoMas] Found ${final.length} products after waiting.`);
-    return final;
-
-  } catch (err) {
-    console.error("[ChangoMas Scraper Error]:", err);
+  } catch (error) {
+    console.error("Scraping failed:", error);
     return [];
   }
 }
