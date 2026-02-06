@@ -1,58 +1,50 @@
 import { Page } from "playwright";
+import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
 
 const BASE_URL = "https://diaonline.supermercadosdia.com.ar";
 
+  const diaConfig: ScrapeConfig = {
+    container: ".vtex-product-summary-2-x-container",
+    name: ".vtex-product-summary-2-x-brandName, .vtex-product-summary-2-x-nameContainer",
+    link: "a.vtex-product-summary-2-x-clearLink",
+    price: {
+      // DIA often puts the price in classes containing 'sellingPriceValue'
+      wrapper: "[class*='sellingPriceValue'], .vtex-product-summary-2-x-price_sellingPrice, .vtex-product-price-1-x-currencyContainer",
+    },
+    // DIA highlights promos in high-contrast badges
+    promo: ".vtex-product-highlights-2-x-productHighlightText, .vtex-product-price-1-x-savingsPercentage",
+    baseUrl: BASE_URL
+  };
+
 export async function scrapeDia(page: Page, query: string) {
+  // Direct search URL (VTEX standard)
+  const url = `${BASE_URL}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
+
   try {
-    // 1. Navigate directly to the search results page (Faster & more reliable)
-    const searchUrl = `${BASE_URL}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
+    console.log(`[DIA] Navigating to: ${url}`);
+
+    // 1. Navigate - 'networkidle' is better for VTEX to ensure price APIs finish
+    await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
+
+    // 2. Wait for the products
+    await page.waitForSelector(diaConfig.container, { timeout: 20000 }).catch(() => {
+        console.warn("[DIA] No products rendered for this query.");
+    });
+
+    // 3. Scroll to trigger hydration (DIA is aggressive with lazy loading)
+    //await page.evaluate(() => window.scrollBy(0, 400));
+    await page.waitForTimeout(1000);
+
+    const html = await page.content();
     
-    await page.goto(searchUrl, {
-      waitUntil: "domcontentloaded", // Wait for the page to be quiet
-      timeout: 45000,
-    });
+    // This handles: normalizeSpanish, extractBrand (CSV), and price math (*100)
+    const products = parseHtml(html, diaConfig, "DIA");
 
-    // 2. Wait for the products to actually render
-    // VTEX stores often show the shell first, so we wait for the actual container
-    await page.waitForSelector(".vtex-product-summary-2-x-container", { 
-      timeout: 20000 
-    });
-
-    // 3. Extract data
-    const products = await page.$$eval(
-      ".vtex-product-summary-2-x-container",
-      (cards) => {
-        return cards.slice(0, 5).map(card => {
-          // Promo Logic
-          const promoText = 
-            card.querySelector('.vtex-product-highlights-2-x-productHighlightText')?.textContent?.trim() ||
-            card.querySelector('.vtex-product-price-1-x-savingsPercentage')?.textContent?.trim() ||
-            card.querySelector('.vtex-product-highlights-2-x-productHighlightText--promotions')?.textContent?.trim() ||
-            null;
-
-          // Name Logic
-          const name = card.querySelector(".vtex-product-summary-2-x-productNameContainer")?.textContent?.trim() ?? "";
-
-          // Price Logic
-          const priceElement = card.querySelector('[class*="sellingPrice"]') || card.querySelector('[class*="price"]');
-          const priceText = priceElement?.textContent || "0";
-          const price = Number(priceText.replace(/\./g, "").replace(/[^0-9]/g, ""));
-
-          // Link Logic
-          const relativeLink = card.querySelector("a")?.getAttribute("href") ?? "";
-          const link = relativeLink.startsWith("http")
-            ? relativeLink
-            : `https://diaonline.supermercadosdia.com.ar${relativeLink}`;
-
-          return { name, price, link, promoText };
-        });
-      }
-    );
-
+    console.log(`[DIA] Found ${products.length} products`);
     return products;
 
   } catch (error) {
     console.error(`[SCRAPE ERROR - DIA]:`, error);
-    return []; // Return empty array so the whole search doesn't fail
+    return [];
   }
 }

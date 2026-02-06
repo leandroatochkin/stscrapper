@@ -17,7 +17,17 @@ export const addScrapeJob = async (query: string, city: string, province: string
   return await scrapeQueue.add(async () => {
     //const stores = getStoresForLocation(city, province);
 
-    const stores = ["CHANGOMAS"];
+    const stores = [
+      //"CHANGOMAS", 
+      //"CARREFOUR",
+      //"VEA",
+      //"JUMBO",
+      //"DISCO",
+      //"COOPERATIVA_OBRERA",
+      //"COTO",
+      //"DIA",
+      "TOLEDO"
+    ];
     let totalItemsSaved = 0;
 
     console.log(`[Queue] Starting Full Search for: "${query}" in ${city}`);

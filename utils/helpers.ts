@@ -34,3 +34,18 @@ export const getStoresForLocation = (city: string, province: string): string[] =
   console.log(`[Debug] Stores found: ${availableStores.join(', ')}`);
   return availableStores;
 };
+
+export function normalizeText(text: string): string {
+  return text
+    .toUpperCase()
+    // 1. Replace Ñ with a placeholder before normalizing
+    .replace(/Ñ/g, "___N_TILDE___") 
+    // 2. Decompose characters (vowels lose accents)
+    .normalize("NFD")
+    // 3. Strip combining marks
+    .replace(/[\u0300-\u036f]/g, "")
+    // 4. Restore the Ñ
+    .replace(/___N_TILDE___/g, "Ñ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

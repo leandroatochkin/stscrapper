@@ -1,82 +1,59 @@
 import { Page } from "playwright";
+import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
 
 const BASE_URL = "https://www.toledodigital.com.ar";
 
+const toledoConfig: ScrapeConfig = {
+  container: "article.vtex-product-summary-2-x-element",
+  name: ".vtex-product-summary-2-x-brandName",
+  link: "a.vtex-product-summary-2-x-clearLink",
+  price: {
+    wrapper: ".vtex-product-summary-2-x-price_sellingPrice",
+    integer: ".vtex-product-summary-2-x-currencyInteger",
+    fraction: ".vtex-product-price-1-x-currencyFraction"
+  },
+  // Added Toledo-specific cucarda classes
+  promo: ".toledodigitalar-theme-0-x-cucarda2x1Text, .toledodigitalar-theme-0-x-cucardaDescuentoSegundaUnidadText, .vtex-product-highlights-2-x-productHighlightText",
+  baseUrl: "https://www.toledodigital.com.ar"
+};
+
 export async function scrapeToledo(page: Page, query: string) {
+  const url = `${BASE_URL}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
+
+
+
   try {
-    console.log(`[Toledo] Searching for: ${query}`);
+    console.log(`[Toledo] Navigating to: ${url}`);
 
-    // 1. Navigate directly to search results (VTEX standard)
-    const searchUrl = `${BASE_URL}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
-    
-    await page.goto(searchUrl, {
-        waitUntil: "domcontentloaded", // Switched from networkidle to be less strict
-        timeout: 60000, // 60 seconds
-        });
+    // 1. Use 'load' instead of 'networkidle' to avoid hanging on trackers
+    await page.goto(url, { waitUntil: "load", timeout: 45000 });
 
-    // 2. Handle the "Confirmar Sucursal" popup if it appears
-    // We do this quickly so it doesn't block the extraction
+    // 2. Immediate Modal Check
+    // We try to clear this as fast as possible
+    const modalButton = page.locator('button:has-text("Confirmar"), .vtex-address-locator-1-x-closeButton').first();
     try {
-      const confirmBtn = page.locator('button:has-text("Confirmar")').first();
-      if (await confirmBtn.isVisible({ timeout: 5000 })) {
-        await confirmBtn.click();
-      }
-    } catch (e) {
-      // Popup didn't show, which is fine
-    }
+        if (await modalButton.isVisible({ timeout: 3000 })) {
+            await modalButton.click();
+        }
+    } catch (e) { /* ignore if not visible */ }
 
-    // 3. Wait for Results Gallery
-    await page.waitForSelector(".vtex-search-result-3-x-galleryItem", { timeout: 20000 });
+    // 3. Wait for the actual product content instead of the whole network
+    await page.waitForSelector(toledoConfig.container, { timeout: 15000 });
 
-    // 4. Extraction Logic
-    const products = await page.$$eval(
-      ".vtex-search-result-3-x-galleryItem",
-      (cards) => {
-        return cards.slice(0, 10).map((card) => {
-          // Name Logic
-          const name = card.querySelector(".vtex-product-summary-2-x-brandName")?.textContent?.trim() || 
-                       card.querySelector(".vtex-product-summary-2-x-nameContainer")?.textContent?.trim() || "";
+    // 4. Force a scroll to trigger lazy-loaded prices
+    //await page.evaluate(() => window.scrollBy(0, 800));
+    await page.waitForTimeout(2000); // Give VTEX a moment to hydrate
 
-          // Price Logic (Robust VTEX parsing)
-          const priceWholeElem = card.querySelector(".vtex-product-price-1-x-currencyInteger");
-          const priceFractionElem = card.querySelector(".vtex-product-price-1-x-currencyFraction");
-
-          let price = 0;
-          if (priceWholeElem) {
-            const wholeStr = priceWholeElem.textContent?.replace(/\D/g, "") || "0";
-            const fractionStr = priceFractionElem?.textContent?.replace(/\D/g, "") || "00";
-            price = parseInt(wholeStr, 10) + (parseInt(fractionStr, 10) / 100);
-          } else {
-            const fallbackPrice = card.querySelector('[class*="Price"], [class*="sellingPrice"]')?.textContent;
-            if (fallbackPrice) {
-               const cleaned = fallbackPrice.replace(/\./g, "").replace(",", ".");
-               price = parseFloat(cleaned.replace(/[^0-9.]/g, ""));
-            }
-          }
-
-          // Promo Text
-          const promoText = card.querySelector(".vtex-product-highlights-2-x-productHighlightText")?.textContent?.trim() ||
-                            card.querySelector(".vtex-product-price-1-x-savingsPercentage")?.textContent?.trim() || null;
-
-          // URL Logic
-          const linkAttr = card.querySelector("a")?.getAttribute("href") || "";
-          const link = linkAttr.startsWith("http") ? linkAttr : `https://www.toledodigital.com.ar${linkAttr}`;
-
-          return {
-            name,
-            price: Math.round(price),
-            link,
-            promoText
-          };
-        });
-      }
-    );
+    const html = await page.content();
+    
+    // Standardized parser handles the CSV Brand mapping and Price * 100 logic
+    const products = parseHtml(html, toledoConfig, "TOLEDO");
 
     console.log(`[Toledo] Found ${products.length} products`);
     return products;
 
   } catch (error) {
-    console.error("[Toledo Scraper] Error:", error);
+    console.error("[Toledo Scraper Error]:", error);
     return [];
   }
 }

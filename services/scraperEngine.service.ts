@@ -41,7 +41,7 @@ const page = await context.newPage();
 
 // 1. Use 'networkidle' instead of 'domcontentloaded' 
 // This ensures the price API calls have finished.
-await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 80000 });
 
 try {
   // 2. Wait for the specific gallery item, not just the container

@@ -44,7 +44,7 @@ export class ScraperFactory {
           results = await scrapeCencosud(page, store, query);
           break;
         case 'CARREFOUR':
-          results = await scrapeCarrefour(page, query);
+          results = await scrapeCarrefour(query);
           break;
         case 'COOPERATIVA_OBRERA':
           results = await scrapeLaCoope(page, query);

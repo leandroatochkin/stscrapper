@@ -1,4 +1,5 @@
-import { Page } from "playwright";
+import { Page } from 'playwright';
+import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
 
 const DOMAINS: Record<string, string> = {
   JUMBO: "https://www.jumbo.com.ar",
@@ -7,61 +8,57 @@ const DOMAINS: Record<string, string> = {
 };
 
 export async function scrapeCencosud(page: Page, store: string, query: string) {
-  const baseUrl = DOMAINS[store.toUpperCase()];
-  if (!baseUrl) throw new Error(`Invalid store: ${store}`);
+  const storeKey = store.toUpperCase();
+  const baseUrl = DOMAINS[storeKey];
+  const url = `${baseUrl}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
+
+  const cencosudConfig: ScrapeConfig = {
+  container: ".vtex-product-summary-2-x-container",
+  name: ".vtex-product-summary-2-x-brandName", 
+  link: "a.vtex-product-summary-2-x-clearLink",
+  price: {
+    // Greedy selector: 
+    // 1. Look for the common format gallery class
+    // 2. Look for any class ending in sellingPriceValue
+    // 3. Fallback to the ID
+    wrapper: ".vtex-price-format-gallery, [class*='sellingPriceValue'], #priceContainer", 
+  },
+  // Jumbo's promo logic is often in 'containerProductHighlight' or 'flagsContainer'
+  promo: ".containerProductHighlight, .vtex-product-highlights-2-x-productHighlightText",
+  baseUrl: baseUrl
+};
 
   try {
-    const searchUrl = `${baseUrl}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
-    
-    await page.goto(searchUrl, { waitUntil: "networkidle", timeout: 45000 });
-    await page.waitForSelector(".vtex-product-summary-2-x-container", { timeout: 15000 });
+  console.log(`[${storeKey}] Navigating to: ${url}`);
+  await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
 
-    const products = await page.$$eval(
-      ".vtex-product-summary-2-x-container",
-      (cards, domain) => {
-        return cards.slice(0, 10).map(card => {
-          // 1. Name extraction
-          const name = card.querySelector(".vtex-product-summary-2-x-productNameContainer")?.textContent?.trim() || 
-                       card.querySelector(".vtex-product-summary-2-x-brandName")?.textContent?.trim() || 
-                       card.querySelector('[class*="productName"]')?.textContent?.trim() || "";
+  // 1. Check for the "Confirmar Sucursal" popup (Common in Jumbo)
+  // We look for the "Comprar" button or the "X" to close the location modal
+  const popupSelector = 'button:has-text("Comprar"), .vtex-address-locator-1-x-closeButton';
+  const popup = await page.$(popupSelector);
+  
+  if (popup) {
+    console.log(`[${storeKey}] Location popup detected. Attempting to bypass...`);
+    await popup.click();
+    await page.waitForTimeout(2000); // Wait for overlay to disappear
+  }
 
-          // 2. UNIVERSAL PRICE LOGIC
-          // We target the ID #priceContainer which you found in Disco/Vea
-          const priceEl = card.querySelector("#priceContainer") || 
-                          card.querySelector('[class*="-price-format"]') ||
-                          card.querySelector('[class*="currencyContainer"]');
-          
-          const priceRaw = priceEl?.textContent || "0";
-          
-          // Robust Cleaning for Argentina format ($1.733,33 or $1.690)
-          const cleanedPrice = priceRaw
-            .replace(/\./g, "")      // Remove thousands dot
-            .replace(",", ".")       // Convert decimal comma to dot
-            .replace(/[^0-9.]/g, ""); // Strip currency symbols/spaces
-          
-          const price = Math.round(parseFloat(cleanedPrice) || 0);
+  // 2. SCROLL to trigger hydration
+  // Jumbo won't load prices if it doesn't think a human is looking
+  //await page.evaluate(() => window.scrollBy(0, 500));
+  await page.waitForTimeout(2000);
 
-          // 3. Link Logic
-          const relativeLink = card.querySelector("a")?.getAttribute("href") || "";
-          const link = relativeLink.startsWith("http") ? relativeLink : `${domain}${relativeLink}`;
+  // 3. Greedier Selector Check
+  // Sometimes Jumbo uses a different class for the price wrapper
+  await page.waitForSelector('.vtex-product-summary-2-x-brandName, #priceContainer', { timeout: 15000 });
 
-          // 4. UNIVERSAL PROMO LOGIC
-          // Target the specific spans you identified by checking for the 'store-theme' class pattern
-          const promoEl = card.querySelector('span[class*="store-theme-"]') || 
-                          card.querySelector(".vtex-product-highlights-2-x-productHighlightText") ||
-                          card.querySelector('[class*="badge"]');
-          
-          const promoText = promoEl?.textContent?.trim() || null;
+  const html = await page.content();
+  const products = parseHtml(html, cencosudConfig, storeKey);
 
-          return { name, price, link, promoText };
-        });
-      },
-      baseUrl
-    );
-
-    return products;
-  } catch (error) {
-    console.error(`[SCRAPE ERROR - ${store}]:`, error);
+  console.log(`[${storeKey}] Found ${products.length} products`);
+  return products;
+} catch (error) {
+    console.error(`[SCRAPE ERROR - ${storeKey}]:`, error);
     return [];
   }
 }

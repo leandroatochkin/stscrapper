@@ -1,57 +1,46 @@
 import { Page } from "playwright";
+import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
 
 const SEARCH_BASE_URL = "https://www.lacoopeencasa.coop/listado/busqueda-avanzada/";
 
 export async function scrapeLaCoope(page: Page, query: string) {
+  const url = `${SEARCH_BASE_URL}${encodeURIComponent(query)}`;
+
+  const laCoopeConfig: ScrapeConfig = {
+    container: "col-listado-articulo", // Using the Angular component tag as the container
+    name: ".articulo-descripcion",
+    link: 'a[href*="/producto/"]',
+    price: {
+      wrapper: ".precio-listado", // Standardizing to the specific price box
+      integer: ".precio-entero",
+      fraction: ".precio-decimal"
+    },
+    promo: ".texto-bandera .descripcion, .bandera-listado .descripcion",
+    baseUrl: "https://www.lacoopeencasa.coop"
+  };
+
   try {
-    console.log(`[La Coope] Searching for: ${query}`);
+    console.log(`[La Coope] Navigating to: ${url}`);
 
-    const searchUrl = `${SEARCH_BASE_URL}${encodeURIComponent(query)}`;
-    
-    // 1. Navigate
-    await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+    // 1. Wait for network to be quiet so Angular can finish its API calls
+    await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
 
-    // 2. Wait for the actual card container from your HTML
-    // We target the .tarjeta-articulo class which is clearly in your snippet
-    await page.waitForSelector('.tarjeta-articulo', { timeout: 20000 });
-
-    // 3. Extract data using the precise classes from your snippet
-    const products = await page.$$eval('.tarjeta-articulo', (cards) => {
-      return cards.slice(0, 10).map(card => {
-        // Name: class="articulo-descripcion"
-        const nameEl = card.querySelector('.articulo-descripcion');
-        const name = nameEl?.textContent?.trim() || "";
-
-        // Price: class="precio-entero" and "precio-decimal"
-        // Note: The integer part often contains the "$" sign in a <small> tag
-        const enteroEl = card.querySelector('.precio-entero');
-        const decimalEl = card.querySelector('.precio-decimal');
-        
-        const enteroText = enteroEl?.textContent?.trim() || "0";
-        const decimalText = decimalEl?.textContent?.trim() || "00";
-
-        // Cleaning: remove dots (thousands) and extract numbers
-        const cleanEntero = enteroText.replace(/\./g, "").replace(/[^0-9]/g, "");
-        const cleanDecimal = decimalText.replace(/[^0-9]/g, "");
-        const price = Number(`${cleanEntero}.${cleanDecimal}`);
-
-        // Link: The <a> tag has the href
-        const linkEl = card.querySelector('a[href*="/producto/"]');
-        const href = linkEl?.getAttribute('href') || "";
-        const fullLink = href.startsWith('http') ? href : `https://www.lacoopeencasa.coop${href}`;
-
-        // Promo: class="descripcion" inside the "bandera-listado" div
-        const promoEl = card.querySelector('.bandera-listado .descripcion');
-        const promoText = promoEl?.textContent?.trim() || null;
-
-        return { name, price, link: fullLink, promoText };
-      });
+    // 2. Wait for the specific description element to ensure the data is "there"
+    await page.waitForSelector('.articulo-descripcion', { timeout: 20000 }).catch(() => {
+        console.warn("[La Coope] Products didn't hydrate in time.");
     });
 
-    const validProducts = products.filter(p => p.name.length > 0 && p.price > 0);
-    console.log(`[La Coope] Found ${validProducts.length} items`);
+    // 3. Force a small scroll to trigger any lazy-loading logic they might have
+    //await page.evaluate(() => window.scrollBy(0, 500));
+    await page.waitForTimeout(1000);
+
+    const html = await page.content();
     
-    return validProducts;
+    // Standardized parser will handle the brand extraction and price math
+    const products = parseHtml(html, laCoopeConfig, "COOPERATIVA_OBRERA");
+
+    console.log(`[La Coope] Found ${products.length} items.`);
+    return products;
 
   } catch (err) {
     console.error("[La Coope Scraper Error]:", err);
