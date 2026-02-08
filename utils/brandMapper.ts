@@ -10,6 +10,7 @@ const BRANDS = fs.readFileSync(csvPath, 'utf-8')
   .sort((a, b) => b.length - a.length); // Longest first to avoid partial matches
 
 export function extractBrand(productName: string): string {
+  console.log(productName)
   if (!productName) return "GENERIC";
   const upperName = productName.toUpperCase();
 

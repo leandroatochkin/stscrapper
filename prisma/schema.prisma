@@ -32,15 +32,27 @@ model ScrapeLock {
 }
 
 model Product {
-  id           String   @id @default(uuid())
-  sku          String   @unique // The unique ID from the store
+  id           String        @id @default(uuid())
+  sku          String        @unique 
   name         String
-  brand        String
+  brandName    String        // Standardized brand name from your CSV logic
   category     String?
-  store        String   // CHANGOMAS, CARREFOUR, etc.
+  storeId      String
+  store        Store         @relation(fields: [storeId], references: [id])
   url          String
   prices       PriceRecord[]
-  createdAt    DateTime @default(now())
+  createdAt    DateTime      @default(now())
+
+  @@index([brandName])
+  @@index([storeId])
+}
+
+model Store {
+  id        String    @id // e.g., "COTO_MDP", "DIA_ALBERTI"
+  name      String    // "Coto"
+  city      String    // "MAR_DEL_PLATA"
+  province  String    // "BUENOS_AIRES"
+  products  Product[]
 }
 
 model PriceRecord {
@@ -48,12 +60,12 @@ model PriceRecord {
   productId      String
   product        Product  @relation(fields: [productId], references: [id])
   price          Float
-  originalPrice  Float?   // Price before discount
-  pricePerUnit   Float?   // Price per Liter/Kg
-  promoText      String?  // e.g., "2x1", "40% off"
+  originalPrice  Float?   
+  discountPct    Float?   // Computed: ((original - price) / original) * 100
+  promoText      String?  
   scrapedAt      DateTime @default(now())
 
-  @@index([scrapedAt])
+  @@index([productId, scrapedAt]) // Crucial for price-over-time graphs
 }
 
 model SearchTrend {
@@ -62,5 +74,8 @@ model SearchTrend {
   city         String
   province     String
   resultsCount Int
+  userId       String?  // Optional: to track unique user behavior
   timestamp    DateTime @default(now())
+
+  @@index([query, city])
 }

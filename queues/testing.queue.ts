@@ -1,95 +1,88 @@
 import PQueue from 'p-queue';
 import { ScraperFactory } from '../scrapper/scraper.factory';
 import { prisma } from '../prisma';
-import { extractBrand } from '../utils/brandMapper';
 import { releaseLock } from '../utils/lock';
-import { getStoresForLocation } from '../utils/helpers';
 import { getBrowserInstance } from '../utils/browserManager';
+import { extractBrand } from '../utils/brandMapper';
 
-// Concurrency: 1 means it will process one store at a time (saves RAM)
 export const scrapeQueue = new PQueue({ concurrency: 2 });
 
 export const addScrapeJob = async (query: string, city: string, province: string) => {
   const lockKey = `${query}:${province}:${city}`;
   const browser = await getBrowserInstance();
 
-  // RETURN the result of scrapeQueue.add so the route can await it
   return await scrapeQueue.add(async () => {
-    //const stores = getStoresForLocation(city, province);
-
     const stores = [
-      //"CHANGOMAS", 
       //"CARREFOUR",
+      //"DISCO",
       //"VEA",
       //"JUMBO",
-      //"DISCO",
-      //"COOPERATIVA_OBRERA",
-      //"COTO",
-      //"DIA",
-      "TOLEDO"
+      //"CHANGOMAS",
+      "COOPERATIVA_OBRERA"
     ];
-    let totalItemsSaved = 0;
-
-    console.log(`[Queue] Starting Full Search for: "${query}" in ${city}`);
-
+    
     try {
-      // Use Promise.all inside the queue task
-      await Promise.all(stores.map(async (store) => {
-        try {
-          await new Promise(r => setTimeout(r, Math.random() * 1000));
-          const results = await ScraperFactory.run(browser, store, query);
-          
-          if (results && results.length > 0) {
-            const dataToSave = results.map(product => ({
-              store: store.toUpperCase(),
-              product_query: query,
-              product_name: product.name,
-              brand: extractBrand(product.name),
-              price: product.price,
-              promo_text: product.promoText || "",
-              url: product.link,
-            }));
-
-            const saved = await prisma.price.createMany({ 
-              data: dataToSave, 
-              skipDuplicates: true 
-            });
-            
-            totalItemsSaved += saved.count;
-            console.log(`[Queue] Saved ${saved.count} items from ${store}`);
+      // FIX 1: Ensure Store ID is EXACTLY what the Factory expects
+      // Usually: STORENAME_CITY (e.g., CARREFOUR_MAR_DEL_PLATA)
+      await Promise.all(stores.map(storeName => {
+        const storeId = `${storeName.toUpperCase()}_${city.toUpperCase().replace(/\s+/g, '_')}`;
+        return prisma.store.upsert({
+          where: { id: storeId },
+          update: {},
+          create: {
+            id: storeId,
+            name: storeName,
+            city: city,
+            province: province
           }
-        } catch (err: any) {
-          console.error(`[Queue] Error scraping ${store}:`, err.message);
+        });
+      }));
+
+      // 2. TRIGGER SCRAPERS
+      await Promise.all(stores.map(async (store) => {
+        // We await the factory. If it crashes, we catch it here.
+        const results = await ScraperFactory.run(browser, store, query, city, province);
+        
+        // FIX 2: If the factory returned results, we FORCE the brand mapping here
+        if (results && results.length > 0) {
+          for (const item of results) {
+            const correctBrand = extractBrand(item.name || "");
+            // This fix ensures the DB is updated even if the Factory messed up
+            await prisma.product.update({
+              where: { id: item.id },
+              data: { brandName: correctBrand }
+            });
+          }
         }
       }));
 
-      if (totalItemsSaved === 0) {
-        await prisma.price.create({
-          data: {
-            store: "NONE",
-            product_query: query,
-            product_name: "NO_RESULTS_FOUND",
-            brand: "NONE",
-            price: 0,
-            url: `empty:${lockKey}`,
-            // NEW: Add a diagnostic note
-            promo_text: "CHECK_REQUIRED: No elements found for selectors" 
+      // 3. RETURN DATA
+      const finalResults = await prisma.priceRecord.findMany({
+        where: {
+          product: {
+            name: { contains: query, mode: 'insensitive' },
+            store: { city: city }
           }
-        });
-      }
-
-      // IMPORTANT: After saving, fetch the items to return them to the search route
-      return await prisma.price.findMany({
-        where: { product_query: query },
+        },
+        include: { product: true },
         orderBy: { price: 'asc' }
       });
 
-    } catch (fatalErr) {
-      console.error(`[Queue] Fatal error in job:`, fatalErr);
+      // FIX 3: THE ULTIMATE OVERRIDE
+      // This ensures that even if the DB update is slow, the user sees "LA SERENISIMA"
+      return finalResults.map(r => ({
+        ...r,
+        product: {
+          ...r.product,
+          brandName: extractBrand(r.product.name)
+        }
+      }));
+
+    } catch (err) {
+      console.error("Queue error:", err);
       return [];
     } finally {
-      await releaseLock('GLOBAL', lockKey); 
-      console.log(`[Worker] Finished. Total saved: ${totalItemsSaved}. Lock released: ${lockKey}`);
+      await releaseLock('GLOBAL', lockKey);
     }
   });
 };

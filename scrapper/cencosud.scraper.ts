@@ -1,5 +1,6 @@
 import { Page } from 'playwright';
 import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
+import * as cheerio from 'cheerio';
 
 const DOMAINS: Record<string, string> = {
   JUMBO: "https://www.jumbo.com.ar",
@@ -10,55 +11,120 @@ const DOMAINS: Record<string, string> = {
 export async function scrapeCencosud(page: Page, store: string, query: string) {
   const storeKey = store.toUpperCase();
   const baseUrl = DOMAINS[storeKey];
+  if (!baseUrl) return [];
+
   const url = `${baseUrl}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
 
   const cencosudConfig: ScrapeConfig = {
-  container: ".vtex-product-summary-2-x-container",
-  name: ".vtex-product-summary-2-x-brandName", 
-  link: "a.vtex-product-summary-2-x-clearLink",
-  price: {
-    // Greedy selector: 
-    // 1. Look for the common format gallery class
-    // 2. Look for any class ending in sellingPriceValue
-    // 3. Fallback to the ID
-    wrapper: ".vtex-price-format-gallery, [class*='sellingPriceValue'], #priceContainer", 
-  },
-  // Jumbo's promo logic is often in 'containerProductHighlight' or 'flagsContainer'
-  promo: ".containerProductHighlight, .vtex-product-highlights-2-x-productHighlightText",
-  baseUrl: baseUrl
-};
+    container: ".vtex-product-summary-2-x-container",
+    name: ".vtex-product-summary-2-x-brandName",
+    link: "a.vtex-product-summary-2-x-clearLink",
+    price: {
+      // Restored your working greedy selectors
+      wrapper: ".vtex-price-format-gallery, [class*='sellingPriceValue'], #priceContainer",
+    },
+    promo: ".containerProductHighlight, .vtex-product-highlights-2-x-productHighlightText",
+    baseUrl: baseUrl,
+    sku: ''
+  };
 
   try {
-  console.log(`[${storeKey}] Navigating to: ${url}`);
-  await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+    console.log(`[${storeKey}] Navigating to: ${url}`);
+    
+    // 1. Navigation with commit to avoid "waiting for networkidle" timeouts on heavy Vtex sites
+    await page.goto(url, { waitUntil: "commit", timeout: 60000 });
 
-  // 1. Check for the "Confirmar Sucursal" popup (Common in Jumbo)
-  // We look for the "Comprar" button or the "X" to close the location modal
-  const popupSelector = 'button:has-text("Comprar"), .vtex-address-locator-1-x-closeButton';
-  const popup = await page.$(popupSelector);
-  
-  if (popup) {
-    console.log(`[${storeKey}] Location popup detected. Attempting to bypass...`);
-    await popup.click();
-    await page.waitForTimeout(2000); // Wait for overlay to disappear
-  }
+    // 2. Wait for the product shelf to appear (prevents empty results)
+    try {
+      await page.waitForSelector('.vtex-product-summary-2-x-container', { timeout: 15000 });
+    } catch (e) {
+      console.warn(`[${storeKey}] Product grid not found. Checking for location modal bypass...`);
+      // Attempt to clear any overlay blocking the content
+      const closeBtn = await page.$('.vtex-address-locator-1-x-closeButton, .vtex-modal__close-icon');
+      if (closeBtn) {
+        await closeBtn.click();
+        await page.waitForTimeout(1000);
+      }
+    }
 
-  // 2. SCROLL to trigger hydration
-  // Jumbo won't load prices if it doesn't think a human is looking
-  //await page.evaluate(() => window.scrollBy(0, 500));
-  await page.waitForTimeout(2000);
+    // 3. Scroll to trigger hydration of prices and images
+    //await page.evaluate(() => window.scrollBy(0, 800));
+    await page.waitForTimeout(2500);
 
-  // 3. Greedier Selector Check
-  // Sometimes Jumbo uses a different class for the price wrapper
-  await page.waitForSelector('.vtex-product-summary-2-x-brandName, #priceContainer', { timeout: 15000 });
+    const html = await page.content();
+    const $ = cheerio.load(html);
 
-  const html = await page.content();
-  const products = parseHtml(html, cencosudConfig, storeKey);
+    // 4. Extract SKUs and Metadata from JSON-LD (Following Carrefour example)
+    const skuMap: Record<string, any> = {};
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const json = JSON.parse($(el).html() || '');
+        const items = json.itemListElement || [];
+        items.forEach((entry: any) => {
+          const p = entry.item;
+          if (p && p['@id']) {
+            const path = new URL(p['@id'], baseUrl).pathname;
+            skuMap[path] = {
+              sku: p.sku,
+              price: p.offers?.lowPrice,
+              originalPrice: p.offers?.highPrice
+            };
+          }
+        });
+      } catch (e) {}
+    });
 
-  console.log(`[${storeKey}] Found ${products.length} products`);
-  return products;
-} catch (error) {
+    const products = parseHtml(html, cencosudConfig, storeKey);
+
+    // 5. Enrich data following the Carrefour Pattern
+    return products.map(p => {
+      const path = new URL(p.link, baseUrl).pathname;
+      const extra = skuMap[path];
+
+      // Scoped container for specific price/promo extraction
+      const productContainer = $(`.vtex-product-summary-2-x-container:has(a[href*="${path}"])`);
+
+      // Target specific price elements found in your HTML snippet
+      const sellingPriceText = productContainer.find('#priceContainer').text() || 
+                               productContainer.find("[class*='sellingPriceValue']").first().text();
+      
+      const listPriceText = productContainer.find("[class*='listPriceValue']").first().text() || 
+                            productContainer.find("[class*='store-theme-2t-mVsKNpKjmCAEM_AMCQH']").first().text();
+
+      const discountBadge = productContainer.find("[class*='store-theme-SpFtPOZlANEkxX04GqL31']").text() || 
+                            productContainer.find("[title*='OFERTA']").text();
+
+      const htmlSellingPrice = parseCencosudPrice(sellingPriceText);
+      const htmlOriginalPrice = parseCencosudPrice(listPriceText);
+
+      // Priority: 1. HTML parsed price, 2. JSON-LD price, 3. parseHtml result
+      const finalPrice = htmlSellingPrice || extra?.price || p.price;
+      const finalOriginalPrice = htmlOriginalPrice || extra?.originalPrice || finalPrice;
+
+      return {
+        ...p,
+        sku: extra?.sku || path.split('-').pop()?.replace('/', '') || p.sku,
+        price: finalPrice,
+        originalPrice: finalOriginalPrice,
+        promoText: (discountBadge + " " + (productContainer.find(cencosudConfig.promo).text().trim() || p.promoText)).trim(),
+        // Matching Carrefour brand extraction (Placeholder)
+        // Factory level extractBrand() will handle the CSV mapping later
+        brand: p.name.split(' ')[0]
+      };
+    });
+
+  } catch (error) {
     console.error(`[SCRAPE ERROR - ${storeKey}]:`, error);
     return [];
   }
+}
+
+/**
+ * Helper to handle Argentine currency format ($ 1.234,56)
+ * Identical logic to Carrefour's price parser
+ */
+function parseCencosudPrice(text: string): number {
+  if (!text) return 0;
+  const cleaned = text.replace(/\$/g, '').replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '.');
+  return parseFloat(cleaned) || 0;
 }

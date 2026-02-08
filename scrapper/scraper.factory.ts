@@ -9,9 +9,17 @@ import { Browser } from 'playwright';
 import { USER_AGENTS } from '../utils/browserManager';
 import path from 'path';
 import fs from 'fs';
+import { prisma } from '../prisma';
+import { extractBrand } from '../utils/brandMapper';
 
 export class ScraperFactory {
-  static async run(browser: Browser, store: string, query: string) {
+  static async run(
+    browser: Browser, 
+    store: string, 
+    query: string,
+    city: string, 
+    province: string
+  ) {
     
     const randomUA = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 
@@ -51,7 +59,7 @@ export class ScraperFactory {
           break;
         case 'CHANGOMAS':
           //results = await scrapeChangoMas(page, query);
-          results = await scrapeChangoMas(query);
+          results = await scrapeChangoMas(page, query);
           break;
         default:
           console.warn(`[Factory] Scraper for ${store} not implemented.`);
@@ -65,7 +73,74 @@ export class ScraperFactory {
         await this.takeDiagnosticScreenshot(page, store, query);
       }
 
-      return results;
+      const storeId = `${store.toUpperCase()}_${city.toUpperCase()}`;
+
+      const seenSkus = new Set();
+const uniqueResults = results.filter(item => {
+  const uniqueKey = `${storeId}_${item.sku}`;
+  if (seenSkus.has(uniqueKey)) return false;
+  seenSkus.add(uniqueKey);
+  return true;
+});
+
+const savedProducts = [];
+
+for (const item of uniqueResults) {
+  try {
+    const uniqueSku = `${storeId}_${item.sku}`;
+    
+    // Safety check for pricing
+    const currentPrice = Number(item.price) || 0;
+    const oldPrice = Number(item.originalPrice) || currentPrice;
+    const discountPct = oldPrice > currentPrice ? ((oldPrice - currentPrice) / oldPrice) * 100 : 0;
+
+    const correctBrand = extractBrand(item.name || "");
+
+    const saved = await prisma.product.upsert({
+            where: { sku: uniqueSku },
+            update: {
+              // We update brandName in case it was "LECHE" before and now we have a match
+              brandName: correctBrand, 
+              prices: {
+                create: {
+                  price: currentPrice,
+                  originalPrice: oldPrice,
+                  discountPct: discountPct,
+                  promoText: item.promoText || "",
+                }
+              }
+            },
+            create: {
+              sku: uniqueSku,
+              name: item.name || "Producto sin nombre",
+              brandName: correctBrand,
+              category: item.category || "General",
+              url: item.link || "",
+              // THE FIX: Move 'connect' inside the 'create' block
+              store: { connect: { id: storeId } }, 
+              prices: {
+                create: {
+                  price: currentPrice,
+                  originalPrice: oldPrice,
+                  discountPct: discountPct,
+                  promoText: item.promoText || "",
+                }
+              }
+            }
+          });
+
+    savedProducts.push(saved);
+
+
+
+          } catch (e) {
+            console.error(`[Factory DB Error] Product: ${item.name}`, e);
+            return null;
+          }
+        }
+      
+
+      return savedProducts
 
     } catch (error: any) {
       console.error(`[Factory Error - ${store}]:`, error.message);

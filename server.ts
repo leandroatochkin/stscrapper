@@ -13,7 +13,23 @@ import './cron/priceCleanup'
 
 export const app = Fastify({
   logger: {
-    level: "info", // change to 'debug' when needed
+    level: "info",
+    // transport: {
+    //   targets: [
+    //     // Log to console (pretty colors for dev)
+    //     {
+    //       target: 'pino-pretty',
+    //       options: { colorize: true },
+    //       level: 'info'
+    //     },
+    //     // Log to a file (JSON format for production analysis)
+    //     {
+    //       target: 'pino/file',
+    //       options: { destination: './logs/app.log', mkdir: true },
+    //       level: 'error'
+    //     }
+    //   ]
+    // } // change to 'debug' when needed
   },
 });
 app.register(cors, {
@@ -76,7 +92,7 @@ const start = async () => {
 
   request.log.error(error);
   reply.status(500).send({ error: "Internal Server Error" });
-});
+  });
 
   app.setErrorHandler((error: any, request, reply) => {
     request.log.error(
@@ -96,6 +112,25 @@ const start = async () => {
 
     reply.status(500).send({
       error: "Internal Server Error",
+    });
+  });
+
+  app.setErrorHandler((error: any, request, reply) => {
+  // Log the error details with Pino
+    request.log.error({
+      err: error,
+      requestId: request.id,
+      url: request.raw.url,
+      query: request.query,
+      // Add custom metadata to help debugging
+      context: 'API_GLOBAL_ERROR'
+    });
+
+    // Send a clean response to the user
+    reply.status(error.statusCode || 500).send({
+      status: "ERROR",
+      message: error.message || "An unexpected error occurred",
+      requestId: request.id // Helpful for the user to report issues
     });
   });
 

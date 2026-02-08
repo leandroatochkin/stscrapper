@@ -12,6 +12,7 @@ export interface ScrapeConfig {
   };
   promo: string;
   baseUrl?: string;
+  sku?: string;
 }
 
 export function parseHtml(html: string, config: ScrapeConfig, storeName: string) {
@@ -22,6 +23,7 @@ export function parseHtml(html: string, config: ScrapeConfig, storeName: string)
     const card = $(el);
 
     const name = normalizeText(card.find(config.name).first().text().trim());
+    const sku = card.find(config.sku).first().text().trim()
     const href = card.find(config.link).attr('href') || "";
     const fullLink = (config.baseUrl && !href.startsWith('http')) 
       ? `${config.baseUrl}${href}` 
@@ -70,7 +72,8 @@ export function parseHtml(html: string, config: ScrapeConfig, storeName: string)
         link: fullLink,
         promoText: card.find(config.promo).first().text().trim() || "",
         store: storeName,
-        scrapedAt: new Date()
+        scrapedAt: new Date(),
+        sku: sku
       });
     }
   });
