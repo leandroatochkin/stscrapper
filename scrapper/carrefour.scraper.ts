@@ -50,6 +50,10 @@ export async function scrapeCarrefour(query: any) {
       // --- NEW FIX: Extract crossed-out price from HTML ---
       // We look for the container that matches this specific product link
       const productContainer = $(`.vtex-product-summary-2-x-container:has(a[href*="${path}"])`);
+
+      const href = productContainer.closest('a').attr('href') || 
+                   productContainer.find('a').attr('href') || 
+                   productContainer.parent('a').attr('href') || "";
       
       const listPriceText = productContainer.find('.valtech-carrefourar-product-price-0-x-listPriceValue').text();
       const htmlOriginalPrice = parseCarrefourPrice(listPriceText);
@@ -66,7 +70,8 @@ export async function scrapeCarrefour(query: any) {
         originalPrice: finalOriginalPrice,
         // Get the promo highlight if it exists (e.g., "4x3 Combinable")
         promoText: productContainer.find('.valtech-carrefourar-product-highlights-0-x-productHighlightText').text().trim() || p.promoText,
-        brand: p.name.split(' ')[0]
+        brand: p.name.split(' ')[0],
+        url: `${carrefourConfig.baseUrl}${href}`
       };
     });
 

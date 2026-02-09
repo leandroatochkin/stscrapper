@@ -83,6 +83,10 @@ export async function scrapeCencosud(page: Page, store: string, query: string) {
 
       // Scoped container for specific price/promo extraction
       const productContainer = $(`.vtex-product-summary-2-x-container:has(a[href*="${path}"])`);
+      
+      const href = productContainer.closest('a').attr('href') || 
+                   productContainer.find('a').attr('href') || 
+                   productContainer.parent('a').attr('href') || "";
 
       // Target specific price elements found in your HTML snippet
       const sellingPriceText = productContainer.find('#priceContainer').text() || 
@@ -109,7 +113,8 @@ export async function scrapeCencosud(page: Page, store: string, query: string) {
         promoText: (discountBadge + " " + (productContainer.find(cencosudConfig.promo).text().trim() || p.promoText)).trim(),
         // Matching Carrefour brand extraction (Placeholder)
         // Factory level extractBrand() will handle the CSV mapping later
-        brand: p.name.split(' ')[0]
+        brand: p.name.split(' ')[0],
+        url: `${baseUrl}${href}`
       };
     });
 

@@ -70,6 +70,10 @@ export async function scrapeChangoMas(page: Page, query: string) {
       // Scoped container for specific price parsing
       const productContainer = $(`.vtex-product-summary-2-x-container:has(a[href*="${path}"])`);
 
+      const href = productContainer.closest('a').attr('href') || 
+                   productContainer.find('a').attr('href') || 
+                   productContainer.parent('a').attr('href') || "";
+
       // ChangoMas specific: List Price often uses 'listPriceValue' or similar VTEX classes
       const listPriceText = productContainer.find("[class*='listPriceValue']").first().text();
       const sellingPriceText = productContainer.find(changoConfig.price.wrapper as string).first().text();
@@ -88,7 +92,8 @@ export async function scrapeChangoMas(page: Page, query: string) {
         originalPrice: finalOriginalPrice,
         promoText: productContainer.find(changoConfig.promo as string).text().trim() || p.promoText,
         // Match Carrefour's placeholder brand extraction
-        brand: p.name.split(' ')[0]
+        brand: p.name.split(' ')[0],
+        url: `${baseUrl}${href}`
       };
     });
 

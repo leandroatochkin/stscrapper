@@ -49,6 +49,10 @@ export async function scrapeLaCoope(page: Page, query: string) {
       const skuFromUrl = p.link.split('/').filter(Boolean).pop();
       const productContainer = $(`col-listado-articulo:has(a[href*="${skuFromUrl}"])`);
 
+      const href = productContainer.closest('a').attr('href') || 
+                   productContainer.find('a').attr('href') || 
+                   productContainer.parent('a').attr('href') || "";
+      console.log(href)
       // 1. IMPROVED SELECTORS for La Coope
       // They use .precio-anterior for the crossed-out price
       const sellingPriceText = productContainer.find('.precio-listado').first().text();
@@ -79,7 +83,8 @@ export async function scrapeLaCoope(page: Page, query: string) {
         price: finalPrice,
         originalPrice: finalOriginalPrice,
         promoText: promoBadge || p.promoText,
-        brand: p.name.split(' ')[0]
+        brand: p.name.split(' ')[0],
+        url: `${laCoopeConfig.baseUrl}${href}`
       };
     });
 

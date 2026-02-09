@@ -4,6 +4,7 @@ import { prisma } from '../prisma';
 import { releaseLock } from '../utils/lock';
 import { getBrowserInstance } from '../utils/browserManager';
 import { extractBrand } from '../utils/brandMapper';
+import { getStoresForLocation } from '../utils/helpers';
 
 export const scrapeQueue = new PQueue({ concurrency: 2 });
 
@@ -12,14 +13,19 @@ export const addScrapeJob = async (query: string, city: string, province: string
   const browser = await getBrowserInstance();
 
   return await scrapeQueue.add(async () => {
-    const stores = [
-      //"CARREFOUR",
-      //"DISCO",
-      //"VEA",
-      //"JUMBO",
-      //"CHANGOMAS",
-      "COOPERATIVA_OBRERA"
-    ];
+    // const stores = [
+    //   "CARREFOUR",
+    //   "DISCO",
+    //   "VEA",
+    //   "JUMBO",
+    //   "CHANGOMAS",
+    //   "COOPERATIVA_OBRERA",
+    //   "COTO",
+    //   "DIA",
+    //   "TOLEDO"
+    // ];
+
+    const stores = getStoresForLocation(city, province)
     
     try {
       // FIX 1: Ensure Store ID is EXACTLY what the Factory expects

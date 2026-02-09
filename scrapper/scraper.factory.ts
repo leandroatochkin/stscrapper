@@ -45,6 +45,7 @@ export class ScraperFactory {
           break;
         case 'TOLEDO':
           results = await scrapeToledo(page, query);
+          console.log("DATA SENT TO DB:", JSON.stringify(results[0], null, 2));
           break;
         case 'JUMBO':
         case 'DISCO':
@@ -115,7 +116,7 @@ for (const item of uniqueResults) {
               name: item.name || "Producto sin nombre",
               brandName: correctBrand,
               category: item.category || "General",
-              url: item.link || "",
+              url: item.url || "",
               // THE FIX: Move 'connect' inside the 'create' block
               store: { connect: { id: storeId } }, 
               prices: {

@@ -1,50 +1,93 @@
 import { Page } from "playwright";
+import * as cheerio from 'cheerio';
 import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
 
 const BASE_URL = "https://diaonline.supermercadosdia.com.ar";
 
-  const diaConfig: ScrapeConfig = {
-    container: ".vtex-product-summary-2-x-container",
-    name: ".vtex-product-summary-2-x-brandName, .vtex-product-summary-2-x-nameContainer",
-    link: "a.vtex-product-summary-2-x-clearLink",
-    price: {
-      // DIA often puts the price in classes containing 'sellingPriceValue'
-      wrapper: "[class*='sellingPriceValue'], .vtex-product-summary-2-x-price_sellingPrice, .vtex-product-price-1-x-currencyContainer",
-    },
-    // DIA highlights promos in high-contrast badges
-    promo: ".vtex-product-highlights-2-x-productHighlightText, .vtex-product-price-1-x-savingsPercentage",
-    baseUrl: BASE_URL
-  };
+const diaConfig: ScrapeConfig = {
+  container: ".vtex-product-summary-2-x-container",
+  name: ".vtex-product-summary-2-x-brandName, .vtex-product-summary-2-x-nameContainer",
+  link: "a.vtex-product-summary-2-x-clearLink",
+  price: {
+    // UPDATED: Using the diaio-store classes from your snippet
+    wrapper: ".diaio-store-5-x-sellingPriceValue, [class*='sellingPriceValue']",
+  },
+  // UPDATED: Added the specific savings percentage class found in your dump
+  promo: ".vtex-product-price-1-x-savingsPercentage, .vtex-store-components-3-x-discountInsideContainer",
+  baseUrl: BASE_URL,
+  sku: ''
+};
 
 export async function scrapeDia(page: Page, query: string) {
-  // Direct search URL (VTEX standard)
   const url = `${BASE_URL}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
 
   try {
     console.log(`[DIA] Navigating to: ${url}`);
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
-    // 1. Navigate - 'networkidle' is better for VTEX to ensure price APIs finish
-    await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
+    // Wait for the specific gallery item class from your snippet
+    await page.waitForSelector(".diaio-search-result-0-x-galleryItem", { timeout: 15000 })
+      .catch(() => console.log("Gallery items didn't appear, checking for single product..."));
 
-    // 2. Wait for the products
-    await page.waitForSelector(diaConfig.container, { timeout: 20000 }).catch(() => {
-        console.warn("[DIA] No products rendered for this query.");
-    });
-
-    // 3. Scroll to trigger hydration (DIA is aggressive with lazy loading)
-    //await page.evaluate(() => window.scrollBy(0, 400));
-    await page.waitForTimeout(1000);
+    // Scroll to wake up lazy loading
+    await page.mouse.wheel(0, 2000);
+    await page.waitForTimeout(2000);
 
     const html = await page.content();
+    const $ = cheerio.load(html);
     
-    // This handles: normalizeSpanish, extractBrand (CSV), and price math (*100)
-    const products = parseHtml(html, diaConfig, "DIA");
+    // We target the gallery items specifically now
+    const items = $(".diaio-search-result-0-x-galleryItem");
+    const results: any[] = [];
 
-    console.log(`[DIA] Found ${products.length} products`);
-    return products;
+    items.each((_, el) => {
+      const container = $(el);
+      const linkEl = container.find("a.vtex-product-summary-2-x-clearLink");
+      const relativeLink = linkEl.attr("href") || "";
+      
+      // SKU EXTRACTION: Targeted at the number before /p
+      // Example: /leche-semi-descremada-dia-larga-vida-1-lt-504/p -> 504
+      const skuMatch = relativeLink.match(/-(\d+)\/p/);
+      const sku = skuMatch ? skuMatch[1] : "";
+
+      const name = container.find(".vtex-product-summary-2-x-brandName").text().trim();
+      
+      // PRICE EXTRACTION
+      const sellingPriceText = container.find(".diaio-store-5-x-sellingPriceValue").first().text();
+      const listPriceText = container.find(".diaio-store-5-x-listPriceValue").first().text();
+      
+      const price = parseDiaPrice(sellingPriceText);
+      const originalPrice = parseDiaPrice(listPriceText);
+
+      // PROMO EXTRACTION
+      const promoText = container.find(".vtex-product-price-1-x-savingsPercentage, .vtex-store-components-3-x-discountInsideContainer").first().text().trim();
+
+      if (name) {
+        results.push({
+          sku,
+          name,
+          price: price,
+          originalPrice: originalPrice || price,
+          promoText: promoText,
+          url: `${BASE_URL}${relativeLink}`,
+          brand: name.split(' ').includes("DIA") ? "DIA" : name.split(' ')[0]
+        });
+      }
+    });
+
+    console.log(`[DIA] Scraped ${results.length} products.`);
+    return results;
 
   } catch (error) {
     console.error(`[SCRAPE ERROR - DIA]:`, error);
     return [];
   }
+}
+
+function parseDiaPrice(text: string): number {
+  if (!text) return 0;
+  // Your HTML shows: "$&nbsp;1.630"
+  // Remove non-numeric except dots and commas
+  const clean = text.replace(/[^\d]/g, ''); 
+  return parseInt(clean) || 0;
 }
