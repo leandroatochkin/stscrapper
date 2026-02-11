@@ -22,7 +22,6 @@ export async function scrapeDia(page: Page, query: string) {
   const url = `${BASE_URL}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
 
   try {
-    console.log(`[DIA] Navigating to: ${url}`);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
     // Wait for the specific gallery item class from your snippet
@@ -75,7 +74,6 @@ export async function scrapeDia(page: Page, query: string) {
       }
     });
 
-    console.log(`[DIA] Scraped ${results.length} products.`);
     return results;
 
   } catch (error) {

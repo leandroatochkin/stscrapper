@@ -20,7 +20,7 @@ export async function scrapeToledo(page: Page, query: string) {
   const url = `${BASE_URL}/${encodeURIComponent(query)}?_q=${encodeURIComponent(query)}&map=ft`;
 
   try {
-    console.log(`[Toledo] Navigating to: ${url}`);
+ 
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
     // 1. Handle Location Modal
@@ -78,7 +78,7 @@ export async function scrapeToledo(page: Page, query: string) {
       }
     });
 
-    console.log(`[Toledo] Scraped ${results.length} products with URLs.`);
+
     return results;
 
   } catch (error) {

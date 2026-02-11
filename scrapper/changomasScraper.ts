@@ -21,7 +21,6 @@ export async function scrapeChangoMas(page: Page, query: string) {
   };
 
   try {
-    console.log(`[ChangoMas] Navigating to: ${url}`);
     
     // 1. Navigate and wait for content (VTEX sites need this)
     await page.goto(url, { waitUntil: "commit", timeout: 60000 });

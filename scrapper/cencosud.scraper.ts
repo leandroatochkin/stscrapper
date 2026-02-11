@@ -29,7 +29,6 @@ export async function scrapeCencosud(page: Page, store: string, query: string) {
   };
 
   try {
-    console.log(`[${storeKey}] Navigating to: ${url}`);
     
     // 1. Navigation with commit to avoid "waiting for networkidle" timeouts on heavy Vtex sites
     await page.goto(url, { waitUntil: "commit", timeout: 60000 });

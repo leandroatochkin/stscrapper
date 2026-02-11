@@ -26,8 +26,7 @@ export async function getPageHtml(url: string): Promise<string> {
   } else {
     console.log(`[Engine] Launching Playwright for: ${url}`);
     const browser = await chromium.launch({ 
-      headless: false,
-      slowMo: 50 // Helps you actually see what's happening
+      headless: true
     }); 
     
     try {

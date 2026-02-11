@@ -1,92 +1,75 @@
 import { Page } from "playwright";
-import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
 import * as cheerio from 'cheerio';
 
 const SEARCH_BASE_URL = "https://www.lacoopeencasa.coop/listado/busqueda-avanzada/";
+const BASE_URL = "https://www.lacoopeencasa.coop";
 
 export async function scrapeLaCoope(page: Page, query: string) {
   const url = `${SEARCH_BASE_URL}${encodeURIComponent(query)}`;
 
-  const laCoopeConfig: ScrapeConfig = {
-    container: "col-listado-articulo", 
-    name: ".articulo-descripcion",
-    link: 'a[href*="/producto/"]',
-    price: {
-      wrapper: ".precio-listado", 
-      integer: ".precio-entero",
-      fraction: ".precio-decimal"
-    },
-    promo: ".texto-bandera .descripcion, .bandera-listado .descripcion",
-    baseUrl: "https://www.lacoopeencasa.coop",
-    sku: ''
-  };
-
   try {
     console.log(`[La Coope] Navigating to: ${url}`);
-
-    // 1. Angular sites need networkidle to finish data hydration
+    
+    // 1. Navigate and wait for the initial load
     await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
 
-    // 2. Wait for the products to actually appear in the DOM
+    // 2. Wait for the specific card class from your HTML
     try {
-      await page.waitForSelector('.articulo-descripcion', { timeout: 20000 });
+      await page.waitForSelector('.tarjeta-articulo', { 
+        state: 'visible', 
+        timeout: 20000 
+      });
     } catch (e) {
-      console.warn("[La Coope] Products didn't hydrate in time.");
+      console.warn("[La Coope] Products (.tarjeta-articulo) didn't appear. Checking HTML anyway...");
     }
-
-    // 3. Trigger small scroll for lazy loading
-    //await page.evaluate(() => window.scrollBy(0, 800));
-    await page.waitForTimeout(1500);
 
     const html = await page.content();
     const $ = cheerio.load(html);
-    
-    // 4. Extract Products using the standardized parser
-    const products = parseHtml(html, laCoopeConfig, "COOPERATIVA_OBRERA");
+    const results: any[] = [];
 
-    // 5. ENRICHMENT (Following the Carrefour/Cencosud Pattern)
-    return products.map(p => {
-      const skuFromUrl = p.link.split('/').filter(Boolean).pop();
-      const productContainer = $(`col-listado-articulo:has(a[href*="${skuFromUrl}"])`);
+    // 3. Target the container you provided
+    $(".tarjeta-articulo").each((_, el) => {
+     // Inside $(".tarjeta-articulo").each((_, el) => { ...
 
-      const href = productContainer.closest('a').attr('href') || 
-                   productContainer.find('a').attr('href') || 
-                   productContainer.parent('a').attr('href') || "";
-      console.log(href)
-      // 1. IMPROVED SELECTORS for La Coope
-      // They use .precio-anterior for the crossed-out price
-      const sellingPriceText = productContainer.find('.precio-listado').first().text();
-      const listPriceText = productContainer.find('.precio-anterior').first().text();
-      const promoBadge = productContainer.find('.texto-bandera .descripcion, .bandera-listado .descripcion').first().text().trim();
+const container = $(el);
 
-      const htmlSellingPrice = parseLaCoopePrice(sellingPriceText);
-      let htmlOriginalPrice = parseLaCoopePrice(listPriceText);
+// 1. Core Data
+const name = container.find(".articulo-descripcion").text().trim();
 
-      // 2. FIX: If no original price was found but there is a percentage badge
-      // We back-calculate it so discountPct isn't 0
-      if ((!htmlOriginalPrice || htmlOriginalPrice === htmlSellingPrice) && promoBadge.includes('%')) {
-        const discountMatch = promoBadge.match(/(\d+)/);
-        if (discountMatch) {
-          const percentage = parseInt(discountMatch[1]);
-          // Formula: Original = Selling / (1 - (Percentage/100))
-          htmlOriginalPrice = Math.round(htmlSellingPrice / (1 - (percentage / 100)));
-        }
-      }
+// 2. Selling Price ($2.025,00)
+const priceInteger = container.find(".precio-entero").first().text().trim();
+const priceDecimal = container.find(".precio-decimal").first().text().trim();
+const sellingPrice = parseComplexPrice(priceInteger, priceDecimal);
 
-      // 3. FINAL ASSIGNMENT
-      const finalPrice = htmlSellingPrice || p.price;
-      const finalOriginalPrice = htmlOriginalPrice || finalPrice;
+// 3. Regular/Original Price ($2.700,00)
+// We look for the "precio-tachado" (crossed out price)
+const originalPriceText = container.find(".precio-tachado").first().text().trim();
+let originalPrice = originalPriceText ? parseLaCoopePrice(originalPriceText) : sellingPrice;
 
-      return {
-        ...p,
-        sku: skuFromUrl || p.sku,
-        price: finalPrice,
-        originalPrice: finalOriginalPrice,
-        promoText: promoBadge || p.promoText,
-        brand: p.name.split(' ')[0],
-        url: `${laCoopeConfig.baseUrl}${href}`
-      };
+// 4. Promo Text (- 25%)
+// We target the .descripcion inside the promo banner
+const promoText = container.find(".bandera-listado .descripcion").first().text().trim();
+
+// 5. SKU & URL
+const relativeLink = container.find('a[href*="/producto/"]').first().attr('href') || "";
+const skuMatch = relativeLink.match(/\/(\d+)$/);
+const sku = skuMatch ? skuMatch[1] : "";
+
+if (name && sellingPrice > 0) {
+  results.push({
+    sku,
+    name,
+    price: sellingPrice,
+    originalPrice: originalPrice,
+    promoText: promoText, // Will capture "- 25%"
+    url: relativeLink ? `${BASE_URL}${relativeLink}` : "",
+    brand: name.split(' ')[0]
+  });
+}
     });
+
+    console.log(`[La Coope] Scraped ${results.length} products successfully.`);
+    return results;
 
   } catch (err) {
     console.error("[La Coope Scraper Error]:", err);
@@ -95,12 +78,24 @@ export async function scrapeLaCoope(page: Page, query: string) {
 }
 
 /**
- * Standardized Argentine currency parser for La Coope
- * Handles format: $ 1.234,56
+ * Parsers the integer ($3.590) and decimal (00) parts
  */
+function parseComplexPrice(integerPart: string, decimalPart: string): number {
+  const integer = integerPart.replace(/[^\d]/g, '');
+  const decimals = decimalPart.replace(/[^\d]/g, '') || "00";
+  return parseFloat(`${integer}.${decimals}`) || 0;
+}
+
 function parseLaCoopePrice(text: string): number {
   if (!text) return 0;
-  // Remove $ and spaces, handle Argentine decimals
-  const cleaned = text.replace(/\$/g, '').replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '.');
+  // Removes $, ARS, and spaces
+  let cleaned = text.replace(/[^\d.,]/g, '');
+  // Standard Argentine: 2.700,00 -> remove dot, replace comma with dot
+  const lastComma = cleaned.lastIndexOf(',');
+  if (lastComma > -1) {
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else {
+    cleaned = cleaned.replace(/\./g, '');
+  }
   return parseFloat(cleaned) || 0;
 }
