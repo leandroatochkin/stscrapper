@@ -1,5 +1,6 @@
 import { Page } from "playwright";
 import * as cheerio from 'cheerio';
+import { parsePrice } from "../utils/helpers";
 
 export async function scrapeCoto(page: Page, query: string) {
   const SEARCH_BASE_URL = "https://www.cotodigital.com.ar/sitios/cdigi/browse?_dyncharset=utf-8&Ntt=";
@@ -30,7 +31,7 @@ export async function scrapeCoto(page: Page, query: string) {
 
       // 2. SELLING PRICE ($1.871,25)
       const sellingPriceText = container.find("h4.card-title").text().trim();
-      const price = parseCotoPrice(sellingPriceText);
+      const price = parsePrice(sellingPriceText, undefined, false);
 
       // 3. ORIGINAL PRICE FIX (The "Precio Regular: $2.495,00")
       // We look for a <small> or element containing the text "Precio Regular"
@@ -40,7 +41,7 @@ export async function scrapeCoto(page: Page, query: string) {
       }).first();
 
       if (regPriceElement.length > 0) {
-        originalPrice = parseCotoPrice(regPriceElement.text());
+        originalPrice = parsePrice(regPriceElement.text(), undefined, false);
       }
 
       // 4. FALLBACKS
@@ -70,25 +71,3 @@ export async function scrapeCoto(page: Page, query: string) {
   }
 }
 
-/**
- * Handles Argentine price formatting
- * Works for: "$1.871,25" -> 1871
- * Works for: "Precio Regular: $2.495,00" -> 2495
- */
-function parseCotoPrice(text: string): number {
-  if (!text) return 0;
-  
-  // 1. Find the first "$" and take everything after it
-  const parts = text.split('$');
-  if (parts.length < 2) return 0;
-  
-  // 2. Take the number part, ignore decimals (after the comma)
-  // Example: "1.871,25" -> "1.871"
-  let numPart = parts[1].split(',')[0].trim();
-  
-  // 3. Remove thousand-separator dots
-  // Example: "1.871" -> "1871"
-  const cleanNumber = numPart.replace(/\./g, '');
-  
-  return parseInt(cleanNumber) || 0;
-}

@@ -1,6 +1,7 @@
 import { Page } from 'playwright';
 import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
 import * as cheerio from 'cheerio';
+import { parsePrice } from '../utils/helpers';
 
 const DOMAINS: Record<string, string> = {
   JUMBO: "https://www.jumbo.com.ar",
@@ -97,8 +98,8 @@ export async function scrapeCencosud(page: Page, store: string, query: string) {
       const discountBadge = productContainer.find("[class*='store-theme-SpFtPOZlANEkxX04GqL31']").text() || 
                             productContainer.find("[title*='OFERTA']").text();
 
-      const htmlSellingPrice = parseCencosudPrice(sellingPriceText);
-      const htmlOriginalPrice = parseCencosudPrice(listPriceText);
+      const htmlSellingPrice = parsePrice(sellingPriceText);
+      const htmlOriginalPrice = parsePrice(listPriceText);
 
       // Priority: 1. HTML parsed price, 2. JSON-LD price, 3. parseHtml result
       const finalPrice = htmlSellingPrice || extra?.price || p.price;
@@ -121,14 +122,4 @@ export async function scrapeCencosud(page: Page, store: string, query: string) {
     console.error(`[SCRAPE ERROR - ${storeKey}]:`, error);
     return [];
   }
-}
-
-/**
- * Helper to handle Argentine currency format ($ 1.234,56)
- * Identical logic to Carrefour's price parser
- */
-function parseCencosudPrice(text: string): number {
-  if (!text) return 0;
-  const cleaned = text.replace(/\$/g, '').replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '.');
-  return parseFloat(cleaned) || 0;
 }

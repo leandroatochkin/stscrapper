@@ -45,7 +45,6 @@ export class ScraperFactory {
           break;
         case 'TOLEDO':
           results = await scrapeToledo(page, query);
-          console.log("DATA SENT TO DB:", JSON.stringify(results[0], null, 2));
           break;
         case 'JUMBO':
         case 'DISCO':
@@ -93,7 +92,7 @@ for (const item of uniqueResults) {
     // Safety check for pricing
     const currentPrice = Number(item.price) || 0;
     const oldPrice = Number(item.originalPrice) || currentPrice;
-    const discountPct = oldPrice > currentPrice ? ((oldPrice - currentPrice) / oldPrice) * 100 : 0;
+    const discountPct = oldPrice > currentPrice ? Math.round(((oldPrice - currentPrice) / oldPrice) * 100) : 0;
 
     const correctBrand = extractBrand(item.name || "");
 

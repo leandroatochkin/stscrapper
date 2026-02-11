@@ -1,6 +1,7 @@
 import { getPageHtml } from '../services/scraperEngine.service';
 import { parseHtml, ScrapeConfig } from '../utils/htmlParser';
 import * as cheerio from 'cheerio';
+import { parsePrice } from '../utils/helpers';
 
 export async function scrapeCarrefour(query: any) {
   const searchString = typeof query === 'object' ? query.query : query;
@@ -56,8 +57,8 @@ export async function scrapeCarrefour(query: any) {
                    productContainer.parent('a').attr('href') || "";
       
       const listPriceText = productContainer.find('.valtech-carrefourar-product-price-0-x-listPriceValue').text();
-      const htmlOriginalPrice = parseCarrefourPrice(listPriceText);
-      const htmlSellingPrice = parseCarrefourPrice(productContainer.find('.valtech-carrefourar-product-price-0-x-sellingPriceValue').text());
+      const htmlOriginalPrice = parsePrice(listPriceText);
+      const htmlSellingPrice = parsePrice(productContainer.find('.valtech-carrefourar-product-price-0-x-sellingPriceValue').text());
 
       // Priority: 1. HTML parsed price, 2. JSON-LD price, 3. parseHtml result
       const finalPrice = htmlSellingPrice || extra?.price || p.price;
@@ -81,9 +82,3 @@ export async function scrapeCarrefour(query: any) {
   }
 }
 
-// Helper to handle Argentine currency format ($ 1.234,56)
-function parseCarrefourPrice(text: string): number {
-  if (!text) return 0;
-  const cleaned = text.replace(/\$/g, '').replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '.');
-  return parseFloat(cleaned) || 0;
-}

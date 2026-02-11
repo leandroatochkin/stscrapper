@@ -1,6 +1,7 @@
 import { Page } from "playwright";
 import * as cheerio from 'cheerio';
 import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
+import { parsePrice } from "../utils/helpers";
 
 const BASE_URL = "https://diaonline.supermercadosdia.com.ar";
 
@@ -55,8 +56,8 @@ export async function scrapeDia(page: Page, query: string) {
       const sellingPriceText = container.find(".diaio-store-5-x-sellingPriceValue").first().text();
       const listPriceText = container.find(".diaio-store-5-x-listPriceValue").first().text();
       
-      const price = parseDiaPrice(sellingPriceText);
-      const originalPrice = parseDiaPrice(listPriceText);
+      const price = parsePrice(sellingPriceText, undefined, false);
+      const originalPrice = parsePrice(listPriceText, undefined, false);
 
       // PROMO EXTRACTION
       const promoText = container.find(".vtex-product-price-1-x-savingsPercentage, .vtex-store-components-3-x-discountInsideContainer").first().text().trim();
@@ -82,10 +83,3 @@ export async function scrapeDia(page: Page, query: string) {
   }
 }
 
-function parseDiaPrice(text: string): number {
-  if (!text) return 0;
-  // Your HTML shows: "$&nbsp;1.630"
-  // Remove non-numeric except dots and commas
-  const clean = text.replace(/[^\d]/g, ''); 
-  return parseInt(clean) || 0;
-}

@@ -13,19 +13,19 @@ export const addScrapeJob = async (query: string, city: string, province: string
   const browser = await getBrowserInstance();
 
   return await scrapeQueue.add(async () => {
-    const stores = [
-      // "CARREFOUR",
-      // "DISCO",
-      // "VEA",
-      // "JUMBO",
-      // "CHANGOMAS",
-      "COOPERATIVA_OBRERA",
-      // "COTO",
-      // "DIA",
-      // "TOLEDO"
-    ];
+    // const stores = [
+    //   // "CARREFOUR",
+    //   // "DISCO",
+    //   // "VEA",
+    //   // "JUMBO",
+    //   // "CHANGOMAS",
+    //   //"COOPERATIVA_OBRERA",
+    //   // "COTO",
+    //   // "DIA",
+    //   // "TOLEDO"
+    // ];
 
-    //const stores = getStoresForLocation(city, province)
+    const stores = getStoresForLocation(city, province)
     
     try {
       // FIX 1: Ensure Store ID is EXACTLY what the Factory expects

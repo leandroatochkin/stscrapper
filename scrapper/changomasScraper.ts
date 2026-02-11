@@ -1,6 +1,7 @@
 import { Page } from 'playwright';
 import { parseHtml, ScrapeConfig } from '../utils/htmlParser';
 import * as cheerio from 'cheerio';
+import { parsePrice } from '../utils/helpers';
 
 export async function scrapeChangoMas(page: Page, query: string) {
   const baseUrl = 'https://www.masonline.com.ar';
@@ -77,8 +78,8 @@ export async function scrapeChangoMas(page: Page, query: string) {
       const listPriceText = productContainer.find("[class*='listPriceValue']").first().text();
       const sellingPriceText = productContainer.find(changoConfig.price.wrapper as string).first().text();
 
-      const htmlSellingPrice = parseChangoPrice(sellingPriceText);
-      const htmlOriginalPrice = parseChangoPrice(listPriceText);
+      const htmlSellingPrice = parsePrice(sellingPriceText);
+      const htmlOriginalPrice = parsePrice(listPriceText);
 
       // Priority: 1. HTML parsed, 2. JSON-LD, 3. parseHtml fallback
       const finalPrice = htmlSellingPrice || extra?.price || p.price;
@@ -102,11 +103,3 @@ export async function scrapeChangoMas(page: Page, query: string) {
   }
 }
 
-/**
- * Standardized Argentine currency parser
- */
-function parseChangoPrice(text: string): number {
-  if (!text) return 0;
-  const cleaned = text.replace(/\$/g, '').replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '.');
-  return parseFloat(cleaned) || 0;
-}

@@ -1,6 +1,7 @@
 import { Page } from "playwright";
 import * as cheerio from 'cheerio';
 import { parseHtml, ScrapeConfig } from "../utils/htmlParser";
+import { parsePrice } from "../utils/helpers";
 
 const BASE_URL = "https://www.toledodigital.com.ar";
 
@@ -60,8 +61,8 @@ export async function scrapeToledo(page: Page, query: string) {
       const sellingPriceText = container.find(".vtex-product-summary-2-x-currencyContainer").first().text();
       const listPriceText = container.find("[class*='listPriceValue']").first().text();
       
-      const price = parseToledoPrice(sellingPriceText);
-      const originalPrice = parseToledoPrice(listPriceText);
+      const price = parsePrice(sellingPriceText, undefined, false);
+      const originalPrice = parsePrice(listPriceText, undefined, false);
 
       const promoText = container.find(toledoConfig.promo).first().text().trim();
 
@@ -87,9 +88,3 @@ export async function scrapeToledo(page: Page, query: string) {
   }
 }
 
-function parseToledoPrice(text: string): number {
-  if (!text) return 0;
-  // Cleans "$ 2.130,00" -> 2130
-  const clean = text.replace(/[^\d,]/g, '').split(',')[0];
-  return parseInt(clean) || 0;
-}
